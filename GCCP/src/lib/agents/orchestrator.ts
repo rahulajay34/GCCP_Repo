@@ -2,6 +2,7 @@ import { AnthropicClient } from "@/lib/anthropic/client";
 import { CreatorAgent } from "./creator";
 import { AnalyzerAgent } from "./analyzer";
 import { SanitizerAgent } from "./sanitizer"; // NEW
+import { RefinerAgent } from "./refiner"; // NEW
 import { FormatterAgent } from "./formatter"; // NEW
 import { GenerationParams, GenerationState } from "@/types/content";
 import { AuthManager } from "@/lib/storage/auth";
@@ -12,6 +13,7 @@ export class Orchestrator {
   private creator: CreatorAgent;
   private analyzer: AnalyzerAgent;
   private sanitizer: SanitizerAgent; // NEW
+  private refiner: RefinerAgent; // NEW
   private formatter: FormatterAgent; // NEW
 
   constructor(apiKey: string) {
@@ -19,6 +21,7 @@ export class Orchestrator {
     this.creator = new CreatorAgent(this.client);
     this.analyzer = new AnalyzerAgent(this.client);
     this.sanitizer = new SanitizerAgent(this.client);
+    this.refiner = new RefinerAgent(this.client);
     this.formatter = new FormatterAgent(this.client);
   }
 
@@ -105,7 +108,35 @@ export class Orchestrator {
         };
       }
 
-      // 4. Formatting - If mode is assignment
+      // 4. Refiner Phase (ALWAYS RUNS)
+      yield {
+        type: "step",
+        agent: "Refiner",
+        status: "working",
+        message: "Polishing and formatting..."
+      };
+
+      // Clear content to show "Refining" effect
+      yield { type: "replace", content: "" };
+
+      let refinedContent = "";
+      const refinerStream = this.refiner.refineStream(fullContent, signal);
+
+      for await (const chunk of refinerStream) {
+        if (signal?.aborted) throw new Error('Aborted');
+        refinedContent += chunk;
+        yield { type: "chunk", content: chunk };
+      }
+
+      fullContent = refinedContent;
+
+      // Cost for Refiner
+      const rInput = estimateTokens(params.topic + fullContent);
+      const rOutput = estimateTokens(refinedContent);
+      const rCost = calculateCost("claude-sonnet-4-5-20250929", rInput, rOutput);
+      currentCost += rCost;
+
+      // 5. Formatting - If mode is assignment
       if (mode === 'assignment') {
         yield {
           type: "step",

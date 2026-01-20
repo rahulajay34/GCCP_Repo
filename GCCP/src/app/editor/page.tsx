@@ -14,11 +14,13 @@ import { Mermaid } from '@/components/ui/Mermaid';
 import { GapAnalysisPanel } from '@/components/editor/GapAnalysis';
 import { ContentMode } from '@/types/content';
 import { GenerationStepper } from '@/components/editor/GenerationStepper';
+import { AssignmentView } from '@/components/editor/AssignmentView';
 
 export default function EditorPage() {
   const { 
       topic, subtopics, mode, status, finalContent, formattedContent, error, gapAnalysis, logs,
-      setTopic, setSubtopics, setMode, setTranscript: hookSetTranscript, startGeneration, stopGeneration, clearStorage 
+      setTopic, setSubtopics, setMode, setTranscript: hookSetTranscript, startGeneration, stopGeneration, clearStorage,
+      setContent
   } = useGeneration();
   
   const [showTranscript, setShowTranscript] = useState(false);
@@ -208,7 +210,7 @@ export default function EditorPage() {
           <div className="flex-1 overflow-y-auto relative p-0 group">
              <textarea 
                 value={finalContent || ''}
-                readOnly
+                onChange={(e) => setContent(e.target.value)}
                 className="w-full h-full resize-none bg-transparent outline-none font-mono text-sm p-6 leading-relaxed text-gray-800"
                 placeholder="// Generated content will stream here..."
              ></textarea>
@@ -255,6 +257,8 @@ export default function EditorPage() {
                     </ReactMarkdown>
                     <div ref={bottomRef} /> {/* Auto-scroll anchor */}
                  </article>
+             ) : mode === 'assignment' && formattedContent ? (
+                <AssignmentView jsonContent={formattedContent} />
              ) : (
                  <div className="h-full flex flex-col items-center justify-center text-gray-400">
                     <FileText size={32} className="mb-2 opacity-50" />
