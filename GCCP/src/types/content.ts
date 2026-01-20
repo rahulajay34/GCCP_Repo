@@ -15,6 +15,11 @@ export interface GenerationParams {
   mode: ContentMode;
   transcript?: string;
   additionalInstructions?: string;
+  assignmentCounts?: {
+    mcsc: number;
+    mcmc: number;
+    subjective: number;
+  };
 }
 
 export interface GenerationLog {
@@ -30,6 +35,7 @@ export interface GenerationState {
   mode: ContentMode;
   status: "idle" | "generating" | "complete" | "error";
   currentAgent: string | null;
+  currentAction: string | null;
   agentProgress: Record<string, AgentStatus>;
   gapAnalysis: GapAnalysisResult | null;
   finalContent: string | null;

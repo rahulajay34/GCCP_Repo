@@ -60,7 +60,8 @@ export const useGeneration = () => {
             subtopics: store.subtopics,
             mode: store.mode,
             transcript: store.transcript || '',
-            additionalInstructions: ''
+            additionalInstructions: '',
+            assignmentCounts: store.assignmentCounts
         };
 
         try {
@@ -72,6 +73,7 @@ export const useGeneration = () => {
 
                 if (event.type === 'step') {
                     store.setCurrentAgent(event.agent || 'System');
+                    store.setCurrentAction(event.action || event.message || '');
                     store.addLog(event.message || '', 'info');
                 } else if (event.type === 'chunk') {
                     store.updateContent(event.content as string || '');
@@ -136,6 +138,7 @@ export const useGeneration = () => {
         logs: store.logs,
         formattedContent: store.formattedContent,
         setTranscript: store.setTranscript,
+        setFormattedContent: store.setFormattedContent,
         error,
         startGeneration,
         stopGeneration,

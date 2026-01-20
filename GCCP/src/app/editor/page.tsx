@@ -14,13 +14,15 @@ import { Mermaid } from '@/components/ui/Mermaid';
 import { GapAnalysisPanel } from '@/components/editor/GapAnalysis';
 import { ContentMode } from '@/types/content';
 import { GenerationStepper } from '@/components/editor/GenerationStepper';
-import { AssignmentView } from '@/components/editor/AssignmentView';
+import { AssignmentWorkspace } from '@/components/editor/AssignmentWorkspace'; // NEW
 
 export default function EditorPage() {
   const { 
       topic, subtopics, mode, status, finalContent, formattedContent, error, gapAnalysis, logs,
       setTopic, setSubtopics, setMode, setTranscript: hookSetTranscript, startGeneration, stopGeneration, clearStorage,
-      setContent
+      setContent, setFormattedContent,
+      currentAgent, currentAction,
+      assignmentCounts, setAssignmentCounts
   } = useGeneration();
   
   const [showTranscript, setShowTranscript] = useState(false);
@@ -55,18 +57,42 @@ export default function EditorPage() {
       URL.revokeObjectURL(url);
   };
   
+  const handleDownloadMarkdown = () => {
+        if (!finalContent) return;
+        const blob = new Blob([finalContent], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${topic.replace(/\s+/g, '_')}.md`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+  };
+
   // Use hook's transcript (from store)
   const { transcript } = useGeneration(); 
 
   // 1. Add this ref for auto-scrolling
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-      // Only scroll if we are generating
-      if (status === 'generating') {
-          bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }
-  }, [finalContent, status]);
+      // Auto-scroll logic with "stick to bottom" behavior
+      useEffect(() => {
+          if (status === 'generating' && bottomRef.current) {
+              const parent = bottomRef.current.parentElement;
+              if (parent) {
+                  const { scrollTop, scrollHeight, clientHeight } = parent;
+                  // Only auto-scroll if user is already near the bottom (within 150px)
+                  const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
+                  
+                  if (isNearBottom) {
+                      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+                  }
+              }
+          }
+      }, [finalContent, status]);
+
+
 
   return (
     <div className="h-[calc(100vh-6rem)] flex flex-col max-w-7xl mx-auto w-full overflow-hidden">
@@ -102,7 +128,48 @@ export default function EditorPage() {
                             {m}
                         </button>
                     ))}
-                 </div>
+                </div>
+
+                {mode === 'assignment' && (
+                  <div className="flex gap-2 items-center w-full animate-in fade-in slide-in-from-top-1">
+                      <div className="text-xs font-medium text-gray-500 mr-1">Counts:</div>
+                      <div className="flex items-center gap-2">
+                          <div className="relative">
+                            <input 
+                              type="number" 
+                              min="0"
+                              value={assignmentCounts?.mcsc || 0}
+                              onChange={(e) => setAssignmentCounts({...assignmentCounts, mcsc: parseInt(e.target.value) || 0})}
+                              className="w-16 pl-2 pr-1 py-1 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none"
+                              placeholder="MCSC"
+                            />
+                            <span className="absolute right-1 top-1 text-[10px] text-gray-400 pointer-events-none">MCSC</span>
+                          </div>
+                          <div className="relative">
+                            <input 
+                                type="number" 
+                                min="0"
+                                value={assignmentCounts?.mcmc || 0}
+                                onChange={(e) => setAssignmentCounts({...assignmentCounts, mcmc: parseInt(e.target.value) || 0})}
+                                className="w-16 pl-2 pr-1 py-1 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none"
+                                placeholder="MCMC"
+                              />
+                            <span className="absolute right-1 top-1 text-[10px] text-gray-400 pointer-events-none">MCMC</span>
+                          </div>
+                          <div className="relative">
+                              <input 
+                                type="number" 
+                                min="0"
+                                value={assignmentCounts?.subjective || 0}
+                                onChange={(e) => setAssignmentCounts({...assignmentCounts, subjective: parseInt(e.target.value) || 0})}
+                                className="w-16 pl-2 pr-1 py-1 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none"
+                                placeholder="Subj"
+                              />
+                              <span className="absolute right-1 top-1 text-[10px] text-gray-400 pointer-events-none">Subj</span>
+                          </div>
+                      </div>
+                  </div>
+                )}
 
                  <button 
                     onClick={() => setShowTranscript(!showTranscript)}
@@ -179,6 +246,16 @@ export default function EditorPage() {
           </div>
       )}
 
+      {/* NEW STATUS BAR */}
+      {status === 'generating' && currentAction && (
+            <div className="flex-shrink-0 flex items-center gap-3 px-4 py-3 bg-blue-50 border-y border-blue-100 text-sm mb-4 animate-in fade-in">
+                <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+                <span className="font-bold text-blue-800">{currentAgent || 'System'}:</span>
+                <span className="text-blue-600">{currentAction}</span>
+                {/* Optional: Add spinner for specific agents if desired, or just keep generic */}
+            </div>
+      )}
+
       {/* Progress Stepper & Logs */}
       {status !== 'idle' && (
           <div className="flex-shrink-0">
@@ -199,75 +276,86 @@ export default function EditorPage() {
           </div>
       )}
 
-      <div className="flex-1 grid grid-cols-2 gap-6 min-h-0">
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col overflow-hidden relative">
-          <div className="flex-shrink-0 px-4 py-3 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />
-                Editor (Markdown)
-            </span>
-          </div>
-          <div className="flex-1 overflow-y-auto relative p-0 group">
-             <textarea 
-                value={finalContent || ''}
-                onChange={(e) => setContent(e.target.value)}
-                className="w-full h-full resize-none bg-transparent outline-none font-mono text-sm p-6 leading-relaxed text-gray-800"
-                placeholder="// Generated content will stream here..."
-             ></textarea>
-                 
-             {/* Overlay for Sanitizer Phase */}
-             {logs && logs.length > 0 && logs[logs.length-1].message.includes('Sanitizer') && (
-               <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10">
-                   <div className="flex flex-col items-center gap-2 text-blue-600">
-                       <Loader2 className="animate-spin w-8 h-8" />
-                       <span className="font-semibold">Sanitizer is auditing content...</span>
+      {/* MAIN CONTENT AREA */}
+      {mode === 'assignment' ? (
+            <div className="flex-1 min-h-0">
+                <AssignmentWorkspace 
+                    jsonContent={formattedContent || '[]'} 
+                    onUpdate={setFormattedContent}
+                />
+            </div>
+      ) : (
+          <div className="flex-1 grid grid-cols-2 gap-6 min-h-0">
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col overflow-hidden relative">
+              <div className="flex-shrink-0 px-4 py-2 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />
+                    Editor (Markdown)
+                </span>
+                <button 
+                    onClick={handleDownloadMarkdown}
+                    className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-200/50 rounded transition-colors"
+                >
+                    <Download size={14} /> Save .md
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto relative p-0 group">
+                 <textarea 
+                    value={finalContent || ''}
+                    onChange={(e) => setContent(e.target.value)}
+                    className="w-full h-full resize-none bg-transparent outline-none font-mono text-sm p-6 leading-relaxed text-gray-800"
+                    placeholder="// Generated content will stream here..."
+                 ></textarea>
+                     
+                 {/* Overlay for Sanitizer Phase - Optional overlap with Status Bar but good for focus */}
+                 {logs && logs.length > 0 && logs[logs.length-1].message.includes('Sanitizer') && (
+                   <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10">
+                       <div className="flex flex-col items-center gap-2 text-blue-600">
+                           <Loader2 className="animate-spin w-8 h-8" />
+                           <span className="font-semibold">Sanitizer is auditing content...</span>
+                       </div>
                    </div>
-               </div>
-            )}
-            
-            {/* Alternative check using status or specific agent tracking if available directly in component state, but logs check is a quick proxy based on event stream */}
-            
-          </div>
-        </div>
+                )}
+              </div>
+            </div>
 
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
-          <div className="flex-shrink-0 px-4 py-3 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
-                Preview
-            </span>
-          </div>
-           <div className="flex-1 overflow-y-auto p-8 bg-gray-50/30">
-             {finalContent ? (
-                 <article className="prose prose-sm md:prose-base prose-slate max-w-none prose-headings:font-bold prose-h1:text-3xl prose-a:text-blue-600 prose-img:rounded-xl prose-pre:bg-gray-800 prose-pre:text-gray-100">
-                    <ReactMarkdown 
-                        remarkPlugins={[remarkGfm, remarkMath]} 
-                        rehypePlugins={[rehypeKatex, rehypeHighlight]}
-                        components={{
-                            code: ({node, inline, className, children, ...props}: any) => {
-                                const match = /language-(\w+)/.exec(className || '');
-                                if (!inline && match && match[1] === 'mermaid') {
-                                     return <Mermaid chart={String(children).replace(/\n$/, '')} />;
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
+              <div className="flex-shrink-0 px-4 py-3 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                    Preview
+                </span>
+              </div>
+               <div className="flex-1 overflow-y-auto p-8 bg-gray-50/30">
+                 {finalContent ? (
+                     <article className="prose prose-sm md:prose-base prose-slate max-w-none prose-headings:font-bold prose-h1:text-3xl prose-a:text-blue-600 prose-img:rounded-xl prose-pre:bg-gray-800 prose-pre:text-gray-100">
+                        <ReactMarkdown 
+                            remarkPlugins={[remarkGfm, remarkMath]} 
+                            rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                            components={{
+                                code: ({node, inline, className, children, ...props}: any) => {
+                                    const match = /language-(\w+)/.exec(className || '');
+                                    if (!inline && match && match[1] === 'mermaid') {
+                                         return <Mermaid chart={String(children).replace(/\n$/, '')} />;
+                                    }
+                                    return <code className={className} {...props}>{children}</code>;
                                 }
-                                return <code className={className} {...props}>{children}</code>;
-                            }
-                        }}
-                    >
-                        {finalContent}
-                    </ReactMarkdown>
-                    <div ref={bottomRef} /> {/* Auto-scroll anchor */}
-                 </article>
-             ) : mode === 'assignment' && formattedContent ? (
-                <AssignmentView jsonContent={formattedContent} />
-             ) : (
-                 <div className="h-full flex flex-col items-center justify-center text-gray-400">
-                    <FileText size={32} className="mb-2 opacity-50" />
-                    <p className="text-sm italic">Preview will appear here...</p>
-                 </div>
-             )}
+                            }}
+                        >
+                            {finalContent}
+                        </ReactMarkdown>
+                        <div ref={bottomRef} /> {/* Auto-scroll anchor */}
+                     </article>
+                  ) : (
+                     <div className="h-full flex flex-col items-center justify-center text-gray-400">
+                        <FileText size={32} className="mb-2 opacity-50" />
+                        <p className="text-sm italic">Preview will appear here...</p>
+                     </div>
+                 )}
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

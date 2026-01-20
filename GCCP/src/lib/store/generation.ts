@@ -11,12 +11,16 @@ interface GenerationStore extends GenerationState {
   setTranscript: (transcript: string) => void;
   setStatus: (status: GenerationState['status']) => void;
   setCurrentAgent: (agent: string) => void;
+  setCurrentAction: (action: string) => void; // NEW
   updateContent: (chunk: string) => void;
   setContent: (content: string) => void;
   setFormattedContent: (content: string) => void;
   setGapAnalysis: (result: any) => void;
   addLog: (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
+
   reset: () => void;
+  assignmentCounts: { mcsc: number; mcmc: number; subjective: number };
+  setAssignmentCounts: (counts: { mcsc: number; mcmc: number; subjective: number }) => void;
 }
 
 export const useGenerationStore = create<GenerationStore>()(
@@ -28,6 +32,7 @@ export const useGenerationStore = create<GenerationStore>()(
       transcript: '',
       status: 'idle',
       currentAgent: null,
+      currentAction: null, // NEW
       agentProgress: {},
       gapAnalysis: null,
       finalContent: '',
@@ -35,13 +40,16 @@ export const useGenerationStore = create<GenerationStore>()(
       logs: [],
       createdAt: 0,
       updatedAt: 0,
+      assignmentCounts: { mcsc: 5, mcmc: 3, subjective: 2 },
 
       setTopic: (topic) => set({ topic }),
+      setAssignmentCounts: (assignmentCounts) => set({ assignmentCounts }),
       setSubtopics: (subtopics) => set({ subtopics }),
       setMode: (mode) => set({ mode }),
       setTranscript: (transcript) => set({ transcript }),
       setStatus: (status) => set({ status }),
       setCurrentAgent: (currentAgent) => set({ currentAgent }),
+      setCurrentAction: (currentAction) => set({ currentAction }), // NEW
       updateContent: (chunk) => set((state) => ({ finalContent: (state.finalContent || '') + chunk })),
       setContent: (content) => set({ finalContent: content }),
       setFormattedContent: (content) => set({ formattedContent: content }),
@@ -50,7 +58,7 @@ export const useGenerationStore = create<GenerationStore>()(
         logs: [...(state.logs || []), { message, type, timestamp: Date.now() }]
       })),
       reset: () => set({
-        topic: '', subtopics: '', status: 'idle', finalContent: '', formattedContent: '', currentAgent: null, gapAnalysis: null, transcript: '', logs: []
+        topic: '', subtopics: '', status: 'idle', finalContent: '', formattedContent: '', currentAgent: null, currentAction: null, gapAnalysis: null, transcript: '', logs: []
       })
     }),
     {

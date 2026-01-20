@@ -30,7 +30,7 @@ export const getCreatorUserPrompt = (
   topic: string,
   subtopics: string,
   mode: ContentMode,
-  prerequisites: string = "None",
+  assignmentCounts: { mcsc: number; mcmc: number; subjective: number } = { mcsc: 5, mcmc: 3, subjective: 2 }
 ) => {
   if (mode === "lecture") {
     return `Topic: ${topic}
@@ -174,13 +174,20 @@ Important: Write naturally. Never mention the word "analogy" explicitly. Never r
   }
 
   if (mode === "assignment") {
+    const { mcsc, mcmc, subjective } = assignmentCounts;
+    const total = mcsc + mcmc + subjective;
     return `Topic: ${topic}
 Key Concepts: ${subtopics}
 Question Type: Mixed (MCSC, MCMC, Subjective)
 Difficulty: Medium
-Number of Questions: 5
+Number of Questions: ${total} (MCSC: ${mcsc}, MCMC: ${mcmc}, Subjective: ${subjective})
 
-Create 5 mixed questions at Medium difficulty level for this topic.
+Create ${total} mixed questions at Medium difficulty level for this topic.
+
+Requests:
+- ${mcsc} Multiple Choice Single Correct (MCSC)
+- ${mcmc} Multiple Choice Multiple Correct (MCMC)
+- ${subjective} Subjective (Open-ended)
 
 For MCSC questions:
 - Write clear, specific question text
@@ -201,7 +208,7 @@ For Subjective questions:
 
 Critical: Question text should be direct and clear. Never include meta-language.
 
-**CRITICAL OUTPUT RULE:** The content inside the JSON fields (like \`explanation\`, \`question_text\`) must be **final, student-facing content only**. Do NOT include internal notes.
+**CRITICAL OUTPUT RULE:** The content inside the JSON fields(like \`explanation\`, \`question_text\`) must be **final, student-facing content only**. Do NOT include internal notes.
 
 **FORMATTING RULES**:
 1. Use **Markdown** for formatting within fields.

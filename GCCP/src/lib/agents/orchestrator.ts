@@ -1,9 +1,10 @@
 import { AnthropicClient } from "@/lib/anthropic/client";
 import { CreatorAgent } from "./creator";
 import { AnalyzerAgent } from "./analyzer";
-import { SanitizerAgent } from "./sanitizer"; // NEW
-import { RefinerAgent } from "./refiner"; // NEW
-import { FormatterAgent } from "./formatter"; // NEW
+import { SanitizerAgent } from "./sanitizer";
+import { RefinerAgent } from "./refiner";
+import { FormatterAgent } from "./formatter";
+import { ReviewerAgent } from "./reviewer"; // NEW
 import { GenerationParams, GenerationState } from "@/types/content";
 import { AuthManager } from "@/lib/storage/auth";
 import { calculateCost, estimateTokens } from "@/lib/anthropic/token-counter";
@@ -12,9 +13,10 @@ export class Orchestrator {
   private client: AnthropicClient;
   private creator: CreatorAgent;
   private analyzer: AnalyzerAgent;
-  private sanitizer: SanitizerAgent; // NEW
-  private refiner: RefinerAgent; // NEW
-  private formatter: FormatterAgent; // NEW
+  private sanitizer: SanitizerAgent;
+  private refiner: RefinerAgent;
+  private formatter: FormatterAgent;
+  private reviewer: ReviewerAgent; // NEW
 
   constructor(apiKey: string) {
     this.client = new AnthropicClient(apiKey);
@@ -23,19 +25,21 @@ export class Orchestrator {
     this.sanitizer = new SanitizerAgent(this.client);
     this.refiner = new RefinerAgent(this.client);
     this.formatter = new FormatterAgent(this.client);
+    this.reviewer = new ReviewerAgent(this.client); // NEW
   }
 
   async *generate(params: GenerationParams, signal?: AbortSignal) {
-    const { topic, subtopics, mode, additionalInstructions, transcript } = params;
+    const { topic, subtopics, mode, additionalInstructions, transcript, assignmentCounts } = params;
     let currentCost = 0;
+    let currentContent = "";
 
     // 1. Transcript Analysis (Optional)
     if (transcript && subtopics) {
       yield {
         type: "step",
         agent: "Analyzer",
-        status: "working",
-        message: "Analyzing transcript coverage..."
+        action: "Checking transcript coverage...",
+        message: "Analyzing Gaps"
       };
 
       try {
@@ -61,17 +65,15 @@ export class Orchestrator {
     yield {
       type: "step",
       agent: "Creator",
-      status: "working",
-      message: `Drafting ${mode} for ${topic}...`
+      action: "Drafting initial content...",
+      message: "Writing Draft"
     };
 
-    let fullContent = "";
-
     try {
-      const stream = this.creator.generateStream(topic, subtopics, mode, additionalInstructions, signal);
+      const stream = this.creator.generateStream(topic, subtopics, mode, additionalInstructions, assignmentCounts, signal);
 
       for await (const chunk of stream) {
-        fullContent += chunk;
+        currentContent += chunk;
         yield {
           type: "chunk",
           content: chunk
@@ -80,7 +82,7 @@ export class Orchestrator {
 
       // Calculate costs for Creator
       const inputTokens = estimateTokens(this.creator.formatUserPrompt(topic, subtopics, mode));
-      const outputTokens = estimateTokens(fullContent);
+      const outputTokens = estimateTokens(currentContent);
       const creatorCost = calculateCost("claude-sonnet-4-5-20250929", inputTokens, outputTokens);
       currentCost += creatorCost;
 
@@ -89,73 +91,103 @@ export class Orchestrator {
         yield {
           type: "step",
           agent: "Sanitizer",
-          status: "working",
-          message: "Auditing against Transcript (Strict Mode)..."
+          action: "Verifying facts against transcript...",
+          message: "Fact Checking"
         };
 
-        const sanitized = await this.sanitizer.sanitize(fullContent, transcript, signal);
-        fullContent = sanitized; // Update content
+        const sanitized = await this.sanitizer.sanitize(currentContent, transcript, signal);
+        currentContent = sanitized; // Update content
 
         // Cost for Sanitizer
-        const sInput = estimateTokens(transcript.slice(0, 50000) + fullContent);
+        const sInput = estimateTokens(transcript.slice(0, 50000) + currentContent);
         const sOutput = estimateTokens(sanitized);
         const sCost = calculateCost("claude-haiku-4-5-20251001", sInput, sOutput);
         currentCost += sCost;
 
         yield {
           type: "replace",
-          content: fullContent
+          content: currentContent
         };
       }
 
-      // 4. Refiner Phase (ALWAYS RUNS)
+      // 4. QUALITY GATE (The Token Saver)
       yield {
         type: "step",
-        agent: "Refiner",
-        status: "working",
-        message: "Polishing and formatting..."
+        agent: "Reviewer",
+        action: "Assessing draft quality...",
+        message: "Quality Check"
       };
 
-      // Clear content to show "Refining" effect
-      yield { type: "replace", content: "" };
+      // Reviewer Logic
+      // Cost for Reviewer
+      const revInput = estimateTokens(currentContent + mode);
+      // Rough output estimate
+      const revOutput = 50;
+      const revCost = calculateCost("claude-haiku-4-5-20251001", revInput, revOutput);
+      currentCost += revCost;
 
-      let refinedContent = "";
-      const refinerStream = this.refiner.refineStream(fullContent, signal);
+      const review = await this.reviewer.review(currentContent, mode);
 
-      for await (const chunk of refinerStream) {
-        if (signal?.aborted) throw new Error('Aborted');
-        refinedContent += chunk;
-        yield { type: "chunk", content: chunk };
+      if (review.needsPolish) {
+        // Only run Refiner if needed
+        yield {
+          type: "step",
+          agent: "Refiner",
+          action: `Polishing: ${review.feedback}`,
+          message: "Polishing Content"
+        };
+
+        let refined = "";
+        // Note context: Reviewer feedback could be passed to Refiner if Refiner supported it. 
+        // For now, RefinerAgent.refineStream takes (content, signal).
+        // We'll rely on Refiner doing its standard job which is usually good enough, 
+        // essentially the Reviewer acts as a boolean gate. 
+
+        yield { type: "replace", content: "" };
+
+        const refinerStream = this.refiner.refineStream(currentContent, signal);
+
+        for await (const chunk of refinerStream) {
+          if (signal?.aborted) throw new Error('Aborted');
+          refined += chunk;
+          yield { type: "chunk", content: chunk };
+        }
+        currentContent = refined;
+
+        // Cost for Refiner
+        const rInput = estimateTokens(params.topic + currentContent); // currentContent was pre-refinement
+        const rOutput = estimateTokens(refined);
+        const rCost = calculateCost("claude-sonnet-4-5-20250929", rInput, rOutput);
+        currentCost += rCost;
+
+      } else {
+        yield {
+          type: "step",
+          agent: "Reviewer",
+          action: "Draft meets Gold Standard. Skipping Polish.",
+          message: "Quality Assured"
+        };
       }
-
-      fullContent = refinedContent;
-
-      // Cost for Refiner
-      const rInput = estimateTokens(params.topic + fullContent);
-      const rOutput = estimateTokens(refinedContent);
-      const rCost = calculateCost("claude-sonnet-4-5-20250929", rInput, rOutput);
-      currentCost += rCost;
 
       // 5. Formatting - If mode is assignment
       if (mode === 'assignment') {
         yield {
           type: "step",
           agent: "Formatter",
-          status: "working",
-          message: "Formatting Assignment to strict JSON..."
+          action: "Converting to structured data...",
+          message: "Formatting"
         };
 
-        const formatted = await this.formatter.formatAssignment(fullContent, signal);
-        // Do NOT overwrite fullContent, as we want to keep Markdown for preview
+        const formatted = await this.formatter.formatAssignment(currentContent, signal);
 
         // Cost for Formatter
-        const fInput = estimateTokens(fullContent);
+        const fInput = estimateTokens(currentContent);
         const fOutput = estimateTokens(formatted);
         const fCost = calculateCost("claude-haiku-4-5-20251001", fInput, fOutput);
         currentCost += fCost;
 
         yield {
-          type: "formatted", // NEW EVENT TYPE
+          type: "formatted",
           content: formatted
         };
       }
@@ -168,20 +200,9 @@ export class Orchestrator {
         AuthManager.updateUser(user);
       }
 
-      // 5. Final Polish Step (UX only)
-      yield {
-        type: "step",
-        agent: "System",
-        status: "working",
-        message: "Finalizing content..."
-      };
-
-      // Short artificial delay to let user see the step if it was too fast
-      await new Promise(resolve => setTimeout(resolve, 800));
-
       yield {
         type: "complete",
-        content: fullContent, // Final final content
+        content: currentContent,
         cost: currentCost
       };
 

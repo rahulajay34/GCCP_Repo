@@ -11,13 +11,13 @@ export class CreatorAgent extends BaseAgent {
     return CREATOR_SYSTEM_PROMPTS[mode] || CREATOR_SYSTEM_PROMPTS["lecture"];
   }
 
-  formatUserPrompt(topic: string, subtopics: string, mode: ContentMode, prerequisites?: string): string {
-    return getCreatorUserPrompt(topic, subtopics, mode, prerequisites);
+  formatUserPrompt(topic: string, subtopics: string, mode: ContentMode, prerequisites?: string, assignmentCounts?: any): string {
+    return getCreatorUserPrompt(topic, subtopics, mode, prerequisites, assignmentCounts);
   }
 
-  async *generateStream(topic: string, subtopics: string, mode: ContentMode, prerequisites?: string, signal?: AbortSignal) {
+  async *generateStream(topic: string, subtopics: string, mode: ContentMode, prerequisites?: string, assignmentCounts?: any, signal?: AbortSignal) {
     const system = this.getSystemPrompt(mode);
-    const user = this.formatUserPrompt(topic, subtopics, mode, prerequisites);
+    const user = this.formatUserPrompt(topic, subtopics, mode, prerequisites, assignmentCounts);
 
     yield* this.client.stream({
       system,
