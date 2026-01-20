@@ -22,7 +22,7 @@ export class Orchestrator {
     this.formatter = new FormatterAgent(this.client);
   }
 
-  async *generate(params: GenerationParams) {
+  async *generate(params: GenerationParams, signal?: AbortSignal) {
     const { topic, subtopics, mode, additionalInstructions, transcript } = params;
     let currentCost = 0;
 
@@ -36,7 +36,7 @@ export class Orchestrator {
       };
 
       try {
-        const analysis = await this.analyzer.analyze(subtopics, transcript);
+        const analysis = await this.analyzer.analyze(subtopics, transcript, signal);
         // Calculate rough cost for analysis
         const inputTok = estimateTokens(this.analyzer.formatUserPrompt(subtopics, transcript));
         const outputTok = estimateTokens(JSON.stringify(analysis));
@@ -48,6 +48,7 @@ export class Orchestrator {
           content: analysis
         };
       } catch (err) {
+        if (signal?.aborted) throw err;
         console.error("Analysis failed", err);
         yield { type: "error", message: "Gap Analysis failed, continuing..." };
       }
@@ -64,7 +65,7 @@ export class Orchestrator {
     let fullContent = "";
 
     try {
-      const stream = this.creator.generateStream(topic, subtopics, mode, additionalInstructions);
+      const stream = this.creator.generateStream(topic, subtopics, mode, additionalInstructions, signal);
 
       for await (const chunk of stream) {
         fullContent += chunk;
@@ -89,7 +90,7 @@ export class Orchestrator {
           message: "Auditing against Transcript (Strict Mode)..."
         };
 
-        const sanitized = await this.sanitizer.sanitize(fullContent, transcript);
+        const sanitized = await this.sanitizer.sanitize(fullContent, transcript, signal);
         fullContent = sanitized; // Update content
 
         // Cost for Sanitizer
@@ -113,7 +114,7 @@ export class Orchestrator {
           message: "Formatting Assignment to strict JSON..."
         };
 
-        const formatted = await this.formatter.formatAssignment(fullContent);
+        const formatted = await this.formatter.formatAssignment(fullContent, signal);
         // Do NOT overwrite fullContent, as we want to keep Markdown for preview
 
         // Cost for Formatter
@@ -136,6 +137,17 @@ export class Orchestrator {
         AuthManager.updateUser(user);
       }
 
+      // 5. Final Polish Step (UX only)
+      yield {
+        type: "step",
+        agent: "System",
+        status: "working",
+        message: "Finalizing content..."
+      };
+
+      // Short artificial delay to let user see the step if it was too fast
+      await new Promise(resolve => setTimeout(resolve, 800));
+
       yield {
         type: "complete",
         content: fullContent, // Final final content
@@ -143,6 +155,9 @@ export class Orchestrator {
       };
 
     } catch (error: any) {
+      if (signal?.aborted) {
+        throw new Error('Aborted');
+      }
       yield {
         type: "error",
         message: error.message || "Generation failed"

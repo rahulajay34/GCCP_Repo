@@ -15,14 +15,15 @@ export class CreatorAgent extends BaseAgent {
     return getCreatorUserPrompt(topic, subtopics, mode, prerequisites);
   }
 
-  async *generateStream(topic: string, subtopics: string, mode: ContentMode, prerequisites?: string) {
+  async *generateStream(topic: string, subtopics: string, mode: ContentMode, prerequisites?: string, signal?: AbortSignal) {
     const system = this.getSystemPrompt(mode);
     const user = this.formatUserPrompt(topic, subtopics, mode, prerequisites);
 
     yield* this.client.stream({
       system,
       messages: [{ role: "user", content: user }],
-      model: this.model
+      model: this.model,
+      signal
     });
   }
 }

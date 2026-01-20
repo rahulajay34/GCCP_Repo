@@ -24,6 +24,7 @@ export class AnthropicClient {
     model: string;
     maxTokens?: number;
     temperature?: number;
+    signal?: AbortSignal;
   }) {
     return this.client.messages.create({
       model: params.model,
@@ -31,7 +32,7 @@ export class AnthropicClient {
       messages: params.messages,
       system: params.system,
       temperature: params.temperature || 0.7,
-    });
+    }, { signal: params.signal });
   }
 
   async *stream(params: {
@@ -40,6 +41,7 @@ export class AnthropicClient {
     model: string;
     maxTokens?: number;
     temperature?: number;
+    signal?: AbortSignal;
   }) {
     const stream = await this.client.messages.create({
       model: params.model,
@@ -48,7 +50,7 @@ export class AnthropicClient {
       system: params.system,
       temperature: params.temperature || 0.7,
       stream: true,
-    });
+    }, { signal: params.signal });
 
     for await (const chunk of stream) {
       if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {

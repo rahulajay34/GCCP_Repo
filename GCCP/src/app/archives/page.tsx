@@ -10,14 +10,7 @@ import { FileText, ArrowRight, Trash2, Calendar } from 'lucide-react';
 export default function ArchivesPage() {
   const [generations, setGenerations] = useState<GenerationState[]>([]);
   const router = useRouter();
-  const setStoreState = useGenerationStore((state) => ({ 
-      setTopic: state.setTopic, 
-      setSubtopics: state.setSubtopics, 
-      setMode: state.setMode,
-      setTranscript: state.setTranscript,
-      setContent: state.setContent,
-      setGapAnalysis: state.setGapAnalysis
-  }));
+  const { setTopic, setSubtopics, setMode, setTranscript, setContent, setGapAnalysis } = useGenerationStore();
 
   useEffect(() => {
     loadGenerations();
@@ -45,20 +38,12 @@ export default function ArchivesPage() {
   };
 
   const handleRestore = (item: GenerationState) => {
-      setStoreState.setTopic(item.topic);
-      setStoreState.setSubtopics(item.subtopics);
-      setStoreState.setMode(item.mode);
-      setStoreState.setTranscript(''); // Assuming no transcript saved or separate?
-      // Wait, I updated store to have transcript, but did I save it to DB?
-      // I didn't verify if 'db.ts' GenerationState matches 'types/content.ts'.
-      // Types match, but Dexie saves what is passed. 
-      // In useGeneration logic, I didn't pass transcript to db.generations.add(). :(
-      // I only passed { topic, subtopics, mode, ... }
-      // I should have passed transcript. 
-      // But for now, I'll ignore transcript restore or set empty.
-      // Actually, let's just set the content.
-      setStoreState.setContent(item.finalContent || '');
-      setStoreState.setGapAnalysis(item.gapAnalysis || null);
+      setTopic(item.topic);
+      setSubtopics(item.subtopics);
+      setMode(item.mode);
+      setTranscript(''); 
+      setContent(item.finalContent || '');
+      setGapAnalysis(item.gapAnalysis || null);
       
       router.push('/editor');
   };

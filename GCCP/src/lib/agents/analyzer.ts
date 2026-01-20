@@ -18,7 +18,7 @@ Return strictly valid JSON in the following format:
 
   formatUserPrompt(subtopics: string, transcript: string): string {
     const subtopicList = subtopics.split(',').map(s => s.trim()).filter(Boolean);
-    
+
     return `Subtopics to check:
 ${subtopicList.map((s, i) => `${i + 1}. ${s}`).join('\n')}
 
@@ -28,21 +28,22 @@ ${transcript}
 Analyze carefully if each subtopic is fully covered, partially covered, or not mentioned at all in the transcript.`;
   }
 
-  async analyze(subtopics: string, transcript: string): Promise<GapAnalysisResult> {
+  async analyze(subtopics: string, transcript: string, signal?: AbortSignal): Promise<GapAnalysisResult> {
     const response = await this.client.generate({
       system: this.getSystemPrompt(),
       messages: [{ role: "user", content: this.formatUserPrompt(subtopics, transcript) }],
       model: this.model,
-      temperature: 0
+      temperature: 0,
+      signal
     });
 
     const content = response.content[0].type === 'text' ? response.content[0].text : '';
-    
+
     try {
       // Basic JSON cleanup if needed
       const jsonStr = content.replace(/```json\n?|\n?```/g, '').trim();
       const result = JSON.parse(jsonStr);
-      
+
       return {
         covered: result.covered || [],
         notCovered: result.notCovered || [],

@@ -12,7 +12,7 @@ Your job is to convert Markdown content into structured JSON formats strictly.
 Do not change the content, just the structure.`;
     }
 
-    async formatAssignment(content: string): Promise<string> {
+    async formatAssignment(content: string, signal?: AbortSignal): Promise<string> {
         const prompt = `CONTENT:
 ${content}
 
@@ -34,7 +34,8 @@ Output ONLY legitimate JSON. No markdown code blocks.`;
         const response = await this.client.generate({
             system: this.getSystemPrompt(),
             messages: [{ role: 'user', content: prompt }],
-            model: this.model
+            model: this.model,
+            signal
         });
 
         const textBlock = response.content.find(b => b.type === 'text');

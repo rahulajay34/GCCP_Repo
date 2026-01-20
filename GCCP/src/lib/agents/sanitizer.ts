@@ -17,7 +17,7 @@ Rules:
 5. Return the cleaned, sanitized markdown content. Do not add meta-commentary.`;
     }
 
-    async sanitize(draft: string, transcript: string): Promise<string> {
+    async sanitize(draft: string, transcript: string, signal?: AbortSignal): Promise<string> {
         const prompt = `TRANSCRIPT:
 ${transcript.slice(0, 50000)} ... [truncated if too long]
 
@@ -31,7 +31,8 @@ Refine the Draft Content to ensure strict adherence to the Transcript. Remove ha
         const response = await this.client.generate({
             system: this.getSystemPrompt(),
             messages: [{ role: 'user', content: prompt }],
-            model: this.model
+            model: this.model,
+            signal
         });
 
         const textBlock = response.content.find(b => b.type === 'text');

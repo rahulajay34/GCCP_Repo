@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useGenerationStore } from '@/lib/store/generation';
 import { Orchestrator } from '@/lib/agents/orchestrator';
 import { AuthManager } from '@/lib/storage/auth';
@@ -8,16 +8,38 @@ import { db } from '@/lib/storage/db';
 export const useGeneration = () => {
     const store = useGenerationStore();
     const [error, setError] = useState<string | null>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
+
+    const stopGeneration = () => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            store.setStatus('idle');
+            store.addLog('Generation stopped by user', 'warning');
+            abortControllerRef.current = null;
+        }
+    };
+
+    const clearStorage = () => {
+        localStorage.removeItem('generation-storage');
+        // also clear logs if needed, but store.reset() usually handles state
+        store.reset();
+        // Optional: clear DB or just local state. The user requested clearing storage.
+        // Reload to ensure fresh state
+        window.location.reload();
+    };
 
     const startGeneration = async () => {
+        // 1. Abort previous if exists
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+
+        // 2. Create new controller
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
         const user = AuthManager.getCurrentUser();
-
-        // NOTE: We prioritize user key if set, but don't strictly require it if env is available.
-        // The AnthropicClient constructor handles the fallback to process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY.
         const apiKey = user?.apiKey || window.localStorage.getItem('anthropic_api_key') || '';
-
-        // We instantiate with whatever we have. If it's empty and no env var, AnthropicClient will throw.
-        // We catch that error in the try/catch block below or immediately.
 
         let orchestrator;
         try {
@@ -42,9 +64,12 @@ export const useGeneration = () => {
         };
 
         try {
-            const generator = orchestrator.generate(params);
+            const generator = orchestrator.generate(params, controller.signal);
 
             for await (const event of generator) {
+                // Check if aborted logic is handled in the orchestrator, but we can also double check
+                if (controller.signal.aborted) break;
+
                 if (event.type === 'step') {
                     store.setCurrentAgent(event.agent || 'System');
                     store.addLog(event.message || '', 'info');
@@ -72,8 +97,8 @@ export const useGeneration = () => {
                             mode: currentStore.mode,
                             status: 'complete',
                             currentAgent: 'Orchestrator',
-                            agentProgress: {}, // flattened or ignored
-                            gapAnalysis: currentStore.gapAnalysis, // access latest state
+                            agentProgress: {},
+                            gapAnalysis: currentStore.gapAnalysis,
                             finalContent: (currentStore.finalContent || '') + (event.content as string || ''),
                             formattedContent: currentStore.formattedContent,
                             createdAt: Date.now(),
@@ -84,16 +109,25 @@ export const useGeneration = () => {
                     }
 
                 } else if (event.type === 'error') {
-                    console.error(event.message); // Log error
+                    // console.error(event.message);
                     store.addLog(event.message || 'Error occurred', 'error');
                     setError(event.message || 'Unknown error');
                     store.setStatus('error');
                 }
             }
         } catch (e: any) {
-            setError(e.message);
-            store.addLog(e.message, 'error');
-            store.setStatus('error');
+            if (e.message === 'Aborted' || e.name === 'AbortError') {
+                store.addLog('Generation stopped by user', 'warning');
+                store.setStatus('idle');
+            } else {
+                setError(e.message);
+                store.addLog(e.message, 'error');
+                store.setStatus('error');
+            }
+        } finally {
+            if (abortControllerRef.current === controller) {
+                abortControllerRef.current = null;
+            }
         }
     };
 
@@ -103,6 +137,8 @@ export const useGeneration = () => {
         formattedContent: store.formattedContent,
         setTranscript: store.setTranscript,
         error,
-        startGeneration
+        startGeneration,
+        stopGeneration,
+        clearStorage
     };
 };
