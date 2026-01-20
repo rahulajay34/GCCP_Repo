@@ -41,13 +41,14 @@ export const GapAnalysisPanel = ({ analysis }: { analysis: GapAnalysisResult | n
         )}
 
         {analysis.notCovered.length > 0 && (
-          <div>
-            <p className="text-sm font-medium text-red-700 flex items-center gap-1 mb-1">
+          <div className="p-3 bg-red-50 border border-red-100 rounded-lg">
+            <p className="text-sm font-bold text-red-700 flex items-center gap-1 mb-1">
                <XCircle size={14} /> Not Covered
             </p>
+            <p className="text-xs text-red-600 mb-2">The following subtopics were missing from the transcript:</p>
             <ul className="text-sm ml-5 space-y-1">
               {analysis.notCovered.map((topic, i) => (
-                <li key={i} className="text-red-700">• {topic}</li>
+                <li key={i} className="text-red-700 font-medium">• {topic}</li>
               ))}
             </ul>
           </div>

@@ -12,17 +12,6 @@ export const useGeneration = () => {
     const startGeneration = async () => {
         const user = AuthManager.getCurrentUser();
 
-        // In a real app, we'd probably use a proxy or check if user has key configured
-        // For now, let's assume we prompt for it or user has it in settings
-        // But for this demo, I need an API KEY.
-        // I will hardcode a check or ask user to provide it.
-        // Since I can't interactively ask in the UI easily without a settings modal...
-        // I'll check if the user has an apiKey set in their profile (AuthManager).
-
-        // TEMPORARY: If we don't have a key, we might fail.
-        // However, I (the Agent) cannot access user secrets. 
-        // I will assume the user has set the key in the AuthManager manually or I will prompt in UI.
-
         // NOTE: We prioritize user key if set, but don't strictly require it if env is available.
         // The AnthropicClient constructor handles the fallback to process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY.
         const apiKey = user?.apiKey || window.localStorage.getItem('anthropic_api_key') || '';
@@ -40,6 +29,7 @@ export const useGeneration = () => {
 
         store.setStatus('generating');
         store.setContent('');
+        store.setFormattedContent('');
         setError(null);
         store.addLog(`Starting generation for topic: ${store.topic}`, 'info');
 
@@ -66,6 +56,9 @@ export const useGeneration = () => {
                 } else if (event.type === 'replace') {
                     store.setContent(event.content as string);
                     store.addLog('Content updated by agent', 'info');
+                } else if (event.type === 'formatted') {
+                    store.setFormattedContent(event.content as string);
+                    store.addLog('Content formatted for LMS', 'success');
                 } else if (event.type === 'complete') {
                     store.setStatus('complete');
                     store.addLog('Generation completed successfully', 'success');
@@ -81,12 +74,11 @@ export const useGeneration = () => {
                             currentAgent: 'Orchestrator',
                             agentProgress: {}, // flattened or ignored
                             gapAnalysis: currentStore.gapAnalysis, // access latest state
-                            finalContent: (currentStore.finalContent || '') + (event.content as string || ''), // ensure we catch the final chunk if any, though usually 'step'/'chunk' handled it. 
-                            // Actually event.content in 'complete' usually has full content or just the final delta?
-                            // Orchestrator 'complete' event has 'content: fullContent'.
+                            finalContent: (currentStore.finalContent || '') + (event.content as string || ''),
+                            formattedContent: currentStore.formattedContent,
                             createdAt: Date.now(),
                             updatedAt: Date.now()
-                        } as any); // Cast to avoid strict type mismatch with partials if any
+                        } as any);
                     } catch (err) {
                         console.error("Failed to save generation", err);
                     }
@@ -107,6 +99,8 @@ export const useGeneration = () => {
 
     return {
         ...store,
+        logs: store.logs,
+        formattedContent: store.formattedContent,
         setTranscript: store.setTranscript,
         error,
         startGeneration

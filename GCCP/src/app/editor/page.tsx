@@ -2,14 +2,16 @@
 
 import { useGeneration } from '@/hooks/useGeneration';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useEffect, useState } from 'react';
-import { Settings, FileText } from 'lucide-react';
+import { FileText, Loader2, Download, RefreshCw } from 'lucide-react';
 import { GapAnalysisPanel } from '@/components/editor/GapAnalysis';
 import { ContentMode } from '@/types/content';
+import { GenerationStepper } from '@/components/editor/GenerationStepper';
 
 export default function EditorPage() {
   const { 
-      topic, subtopics, mode, status, finalContent, error, gapAnalysis,
+      topic, subtopics, mode, status, finalContent, formattedContent, error, gapAnalysis, logs,
       setTopic, setSubtopics, setMode, setTranscript: hookSetTranscript, startGeneration 
   } = useGeneration();
   
@@ -30,7 +32,7 @@ export default function EditorPage() {
       const payload = {
           topic,
           subtopics,
-          content: finalContent,
+          content: formattedContent || finalContent,
           timestamp: new Date().toISOString()
       };
       
@@ -43,20 +45,14 @@ export default function EditorPage() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      
-      alert("Simulated 'Push to LMS' - JSON downloaded.");
-  };
-
-  const handleGenerate = () => {
-      startGeneration(); 
   };
   
   // Use hook's transcript (from store)
   const { transcript } = useGeneration(); 
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex justify-between items-start mb-6 gap-4">
+    <div className="h-full flex flex-col max-w-7xl mx-auto w-full">
+      <div className="flex justify-between items-start mb-6 gap-6">
         {/* ... INPUTS ... */}
         <div className="flex-1 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -64,26 +60,26 @@ export default function EditorPage() {
                     value={topic}
                     onChange={(e) => setTopic(e.target.value)}
                     placeholder="Topic (e.g. Intro to ML)"
-                    className="px-4 py-2 rounded-lg border border-gray-300 bg-white"
+                    className="px-4 py-2 rounded-xl border border-gray-200 bg-white shadow-sm focus:ring-2 focus:ring-blue-100 transition-all outline-none"
                 />
                 <input 
                     value={subtopics}
                     onChange={(e) => setSubtopics(e.target.value)}
                     placeholder="Subtopics (comma separated)"
-                    className="px-4 py-2 rounded-lg border border-gray-300 bg-white"
+                    className="px-4 py-2 rounded-xl border border-gray-200 bg-white shadow-sm focus:ring-2 focus:ring-blue-100 transition-all outline-none"
                 />
             </div>
             
-            <div className="flex gap-4 items-center flex-wrap">
-                 <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-gray-200">
+            <div className="flex gap-3 items-center flex-wrap">
+                 <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-lg border border-gray-200">
                     {(['lecture', 'pre-read', 'assignment'] as ContentMode[]).map((m) => (
                         <button
                             key={m}
                             onClick={() => setMode(m)}
-                            className={`px-3 py-1.5 text-sm font-medium rounded-md capitalize transition-colors
+                            className={`px-3 py-1.5 text-xs font-semibold rounded-md capitalize transition-all
                                 ${mode === m 
-                                    ? 'bg-blue-100 text-blue-700' 
-                                    : 'text-gray-600 hover:bg-gray-100'}`}
+                                    ? 'bg-white text-blue-700 shadow-sm border border-gray-100' 
+                                    : 'text-gray-500 hover:text-gray-700'}`}
                         >
                             {m}
                         </button>
@@ -92,25 +88,26 @@ export default function EditorPage() {
 
                  <button 
                     onClick={() => setShowTranscript(!showTranscript)}
-                    className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors
+                    className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg border transition-all
                         ${showTranscript || transcript
-                            ? 'bg-blue-50 border-blue-200 text-blue-700'
-                            : 'bg-white border-gray-300 text-gray-700'}`}
+                            ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                            : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
                  >
-                    <FileText size={16} />
+                    <FileText size={14} />
                     {transcript ? 'Transcript Added' : 'Add Transcript'}
                  </button>
                  
-                 <label className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 bg-white hover:bg-gray-50 cursor-pointer">
-                    <span className="text-gray-700">Upload .txt</span>
+                 <label className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white hover:bg-gray-50 cursor-pointer text-gray-600 transition-colors">
+                    Upload .txt
                     <input type="file" accept=".txt,.md" onChange={handleFileUpload} className="hidden" />
                  </label>
                  
                  <button 
                     onClick={handlePushToLMS}
                     disabled={!finalContent}
-                    className="px-3 py-1.5 text-sm font-medium text-green-700 bg-green-100 border border-green-200 rounded-lg disabled:opacity-50"
+                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-emerald-100 transition-colors ml-auto"
                  >
+                    <Download size={14} />
                     Push to LMS
                  </button>
             </div>
@@ -121,26 +118,41 @@ export default function EditorPage() {
            <button 
              onClick={startGeneration}
              disabled={status === 'generating' || !topic}
-             className={`px-4 py-2 text-sm font-medium text-white rounded-lg shadow-sm transition-all
+             className={`px-6 py-2.5 text-sm font-semibold text-white rounded-xl shadow-md shadow-blue-500/20 transition-all flex items-center gap-2
                 ${status === 'generating' 
                     ? 'bg-blue-400 cursor-not-allowed' 
-                    : 'bg-blue-600 hover:bg-blue-700 hover:scale-105'}`
+                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:opacity-90 hover:scale-[1.02]'}`
              }
            >
-             {status === 'generating' ? 'Generating...' : 'Generate Content'}
+             {status === 'generating' ? (
+                 <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Generating...
+                 </>
+             ) : (
+                 <>
+                    <RefreshCw size={16} />
+                    Generate Content
+                 </>
+             )}
            </button>
         </div>
       </div>
 
       {(showTranscript || transcript) && (
-          <div className="mb-6">
+          <div className="mb-6 animate-in fade-in slide-in-from-top-2">
               <textarea
                   value={transcript}
                   onChange={(e) => hookSetTranscript(e.target.value)}
                   placeholder="Paste lecture transcript here for analysis and context..."
-                  className="w-full h-32 p-3 rounded-lg border border-gray-300 bg-white text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none resize-y"
+                  className="w-full h-32 p-4 rounded-xl border border-gray-200 bg-gray-50/50 text-sm font-mono focus:ring-2 focus:ring-indigo-100 focus:bg-white outline-none resize-y transition-all"
               />
           </div>
+      )}
+
+      {/* Progress Stepper & Logs */}
+      {status !== 'idle' && (
+          <GenerationStepper logs={logs || []} status={status} />
       )}
 
       {gapAnalysis && (
@@ -148,32 +160,48 @@ export default function EditorPage() {
       )}
 
       {error && (
-          <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm">
+          <div className="mb-4 p-4 bg-red-50 text-red-700 rounded-xl border border-red-100 flex items-center gap-2 text-sm">
+              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
               Error: {error}
           </div>
       )}
 
       <div className="flex-1 grid grid-cols-2 gap-6 min-h-0">
-        <div className="bg-white rounded-xl border border-gray-200 flex flex-col overflow-hidden">
-          <div className="p-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Editor (Markdown)</span>
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />
+                Editor (Markdown)
+            </span>
           </div>
-          <div className="flex-1 p-0 overflow-hidden">
+          <div className="flex-1 p-0 overflow-hidden relative group">
              <textarea 
                 value={finalContent || ''}
                 readOnly
-                className="w-full h-full resize-none bg-transparent outline-none font-mono text-sm p-4" 
+                className="w-full h-full resize-none bg-transparent outline-none font-mono text-sm p-6 leading-relaxed text-gray-800"
                 placeholder="// Generated content will stream here..."
              ></textarea>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 flex flex-col overflow-hidden">
-          <div className="p-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Preview (Rendered)</span>
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                Preview
+            </span>
           </div>
-           <div className="flex-1 p-4 overflow-auto prose max-w-none">
-             {finalContent ? <ReactMarkdown>{finalContent}</ReactMarkdown> : <p className="text-gray-400 italic">Preview will appear here...</p>}
+           <div className="flex-1 p-8 overflow-auto bg-gray-50/30">
+             {finalContent ? (
+                 <article className="prose prose-sm md:prose-base prose-slate max-w-none prose-headings:font-bold prose-h1:text-3xl prose-a:text-blue-600 prose-img:rounded-xl prose-pre:bg-gray-800 prose-pre:text-gray-100">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{finalContent}</ReactMarkdown>
+                 </article>
+             ) : (
+                 <div className="h-full flex flex-col items-center justify-center text-gray-400">
+                    <FileText size={32} className="mb-2 opacity-50" />
+                    <p className="text-sm italic">Preview will appear here...</p>
+                 </div>
+             )}
           </div>
         </div>
       </div>

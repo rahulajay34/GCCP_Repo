@@ -1,4 +1,4 @@
-import Dexie, { Table } from 'dexie';
+import Dexie from 'dexie';
 import { GenerationState, ContentMode } from '@/types/content';
 
 export interface LMSExport {
@@ -10,12 +10,12 @@ export interface LMSExport {
 }
 
 export class AppDatabase extends Dexie {
-  generations!: Table<GenerationState, string>; // ID is uuid string
-  lmsExports!: Table<LMSExport, number>;
+  generations!: any;
+  lmsExports!: any;
 
   constructor() {
     super('AgenticCoreDB');
-    this.version(1).stores({
+    (this as any).version(1).stores({
       generations: '++id, topic, mode, status, createdAt',
       lmsExports: '++id, type, status, timestamp'
     });

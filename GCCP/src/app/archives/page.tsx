@@ -28,17 +28,19 @@ export default function ArchivesPage() {
       const items = await db.generations.orderBy('createdAt').reverse().toArray();
       setGenerations(items);
     } catch (error) {
-      console.error("Failed to load generations", error);
+      console.error("Failed to load generations. DB might be empty or corrupt.", error);
+      // Optional: alert user or show error state
     }
   };
 
   const handleDelete = async (id: string | number) => {
       if (!confirm("Are you sure you want to delete this item?")) return;
       try {
-          await db.generations.delete(id as any); // Dexie types can be tricky
+          await db.generations.delete(id); 
           loadGenerations();
       } catch (e) {
           console.error("Failed to delete", e);
+          alert("Failed to delete item. It might not exist.");
       }
   };
 

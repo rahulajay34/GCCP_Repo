@@ -4,6 +4,7 @@ import { GenerationState, ContentMode, AgentStatus } from '@/types/content';
 
 interface GenerationStore extends GenerationState {
   transcript?: string;
+  formattedContent?: string;
   setTopic: (topic: string) => void;
   setSubtopics: (subtopics: string) => void;
   setMode: (mode: ContentMode) => void;
@@ -12,8 +13,9 @@ interface GenerationStore extends GenerationState {
   setCurrentAgent: (agent: string) => void;
   updateContent: (chunk: string) => void;
   setContent: (content: string) => void;
+  setFormattedContent: (content: string) => void;
   setGapAnalysis: (result: any) => void;
-  addLog: (message: string, type?: string) => void;
+  addLog: (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
   reset: () => void;
 }
 
@@ -29,6 +31,7 @@ export const useGenerationStore = create<GenerationStore>()(
       agentProgress: {},
       gapAnalysis: null,
       finalContent: '',
+      formattedContent: '',
       logs: [],
       createdAt: 0,
       updatedAt: 0,
@@ -41,12 +44,13 @@ export const useGenerationStore = create<GenerationStore>()(
       setCurrentAgent: (currentAgent) => set({ currentAgent }),
       updateContent: (chunk) => set((state) => ({ finalContent: (state.finalContent || '') + chunk })),
       setContent: (content) => set({ finalContent: content }),
+      setFormattedContent: (content) => set({ formattedContent: content }),
       setGapAnalysis: (result: any) => set({ gapAnalysis: result }),
-      addLog: (message, type = 'info') => set((state) => ({
+      addLog: (message, type: 'info' | 'success' | 'warning' | 'error' = 'info') => set((state) => ({
         logs: [...(state.logs || []), { message, type, timestamp: Date.now() }]
       })),
       reset: () => set({
-        topic: '', subtopics: '', status: 'idle', finalContent: '', currentAgent: null, gapAnalysis: null, transcript: '', logs: []
+        topic: '', subtopics: '', status: 'idle', finalContent: '', formattedContent: '', currentAgent: null, gapAnalysis: null, transcript: '', logs: []
       })
     }),
     {
@@ -58,6 +62,7 @@ export const useGenerationStore = create<GenerationStore>()(
         mode: state.mode,
         transcript: state.transcript,
         finalContent: state.finalContent,
+        formattedContent: state.formattedContent,
         gapAnalysis: state.gapAnalysis,
         logs: state.logs,
         status: state.status === 'generating' ? 'idle' : state.status // reset stuck generating

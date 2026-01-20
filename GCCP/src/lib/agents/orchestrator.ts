@@ -114,7 +114,7 @@ export class Orchestrator {
         };
 
         const formatted = await this.formatter.formatAssignment(fullContent);
-        fullContent = formatted;
+        // Do NOT overwrite fullContent, as we want to keep Markdown for preview
 
         // Cost for Formatter
         const fInput = estimateTokens(fullContent);
@@ -123,8 +123,8 @@ export class Orchestrator {
         currentCost += fCost;
 
         yield {
-          type: "replace",
-          content: fullContent
+          type: "formatted", // NEW EVENT TYPE
+          content: formatted
         };
       }
 

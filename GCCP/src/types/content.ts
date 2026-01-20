@@ -17,6 +17,12 @@ export interface GenerationParams {
   additionalInstructions?: string;
 }
 
+export interface GenerationLog {
+  message: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+  timestamp: number;
+}
+
 export interface GenerationState {
   id?: string | number;
   topic: string;
@@ -27,7 +33,8 @@ export interface GenerationState {
   agentProgress: Record<string, AgentStatus>;
   gapAnalysis: GapAnalysisResult | null;
   finalContent: string | null;
-  logs: Array<{ message: string; type: string; timestamp: number }>;
+  formattedContent?: string | null;
+  logs: GenerationLog[];
   createdAt: number;
   updatedAt: number;
 }
