@@ -4,11 +4,14 @@ export class AnthropicClient {
   private client: Anthropic;
   private apiKey: string;
 
-  constructor(apiKey: string) {
-    if (!apiKey) {
-      throw new Error('API Key is required');
+  constructor(apiKey?: string) {
+    // Prioritize passed key (if admin sets specific one), otherwise use env
+    const key = apiKey || process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY;
+
+    if (!key) {
+      throw new Error('API Key is missing. Please set NEXT_PUBLIC_ANTHROPIC_API_KEY in .env.local');
     }
-    this.apiKey = apiKey;
+    this.apiKey = key;
     this.client = new Anthropic({
       apiKey: this.apiKey,
       dangerouslyAllowBrowser: true // Required for client-side usage

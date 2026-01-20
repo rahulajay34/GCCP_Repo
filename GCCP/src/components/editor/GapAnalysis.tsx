@@ -5,10 +5,10 @@ export const GapAnalysisPanel = ({ analysis }: { analysis: GapAnalysisResult | n
   if (!analysis) return null;
   
   return (
-    <div className="border border-gray-200 dark:border-gray-800 rounded-lg p-4 bg-white dark:bg-gray-900 mb-6 shadow-sm">
-      <h3 className="font-semibold mb-3 text-gray-900 dark:text-gray-100 flex items-center gap-2">
+    <div className="border border-gray-200 rounded-lg p-4 bg-white mb-6 shadow-sm">
+      <h3 className="font-semibold mb-3 text-gray-900 flex items-center gap-2">
         <span>Transcript Coverage Analysis</span>
-        <span className="text-xs font-normal text-gray-500 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">
+        <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
            {new Date(analysis.timestamp).toLocaleTimeString()}
         </span>
       </h3>
@@ -16,12 +16,12 @@ export const GapAnalysisPanel = ({ analysis }: { analysis: GapAnalysisResult | n
       <div className="space-y-3">
         {analysis.covered.length > 0 && (
           <div>
-            <p className="text-sm font-medium text-green-700 dark:text-green-400 flex items-center gap-1 mb-1">
+            <p className="text-sm font-medium text-green-700 flex items-center gap-1 mb-1">
                <CheckCircle size={14} /> Fully Covered
             </p>
             <ul className="text-sm ml-5 space-y-1">
               {analysis.covered.map((topic, i) => (
-                <li key={i} className="text-green-700 dark:text-green-300/80">• {topic}</li>
+                <li key={i} className="text-green-700">• {topic}</li>
               ))}
             </ul>
           </div>
@@ -29,12 +29,12 @@ export const GapAnalysisPanel = ({ analysis }: { analysis: GapAnalysisResult | n
         
         {analysis.partiallyCovered.length > 0 && (
           <div>
-            <p className="text-sm font-medium text-yellow-700 dark:text-yellow-400 flex items-center gap-1 mb-1">
+            <p className="text-sm font-medium text-yellow-700 flex items-center gap-1 mb-1">
                <AlertCircle size={14} /> Partially Covered
             </p>
             <ul className="text-sm ml-5 space-y-1">
               {analysis.partiallyCovered.map((topic, i) => (
-                <li key={i} className="text-yellow-700 dark:text-yellow-300/80">• {topic}</li>
+                <li key={i} className="text-yellow-700">• {topic}</li>
               ))}
             </ul>
           </div>
@@ -42,12 +42,12 @@ export const GapAnalysisPanel = ({ analysis }: { analysis: GapAnalysisResult | n
 
         {analysis.notCovered.length > 0 && (
           <div>
-            <p className="text-sm font-medium text-red-700 dark:text-red-400 flex items-center gap-1 mb-1">
+            <p className="text-sm font-medium text-red-700 flex items-center gap-1 mb-1">
                <XCircle size={14} /> Not Covered
             </p>
             <ul className="text-sm ml-5 space-y-1">
               {analysis.notCovered.map((topic, i) => (
-                <li key={i} className="text-red-700 dark:text-red-300/80">• {topic}</li>
+                <li key={i} className="text-red-700">• {topic}</li>
               ))}
             </ul>
           </div>

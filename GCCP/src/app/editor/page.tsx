@@ -13,64 +13,77 @@ export default function EditorPage() {
       setTopic, setSubtopics, setMode, setTranscript: hookSetTranscript, startGeneration 
   } = useGeneration();
   
-  const [showSettings, setShowSettings] = useState(false);
-  const [apiKey, setApiKey] = useState('');
-  const [transcript, setTranscript] = useState('');
   const [showTranscript, setShowTranscript] = useState(false);
-
-  // Hydrate local API key
-  useEffect(() => {
-      setApiKey(window.localStorage.getItem('anthropic_api_key') || '');
-  }, []);
-
-  const handleSaveKey = () => {
-      window.localStorage.setItem('anthropic_api_key', apiKey);
-      setShowSettings(false);
+  
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      
+      const text = await file.text();
+      hookSetTranscript(text);
+      if (!showTranscript) setShowTranscript(true);
+  };
+  
+  const handlePushToLMS = () => {
+      if (!finalContent) return;
+      
+      const payload = {
+          topic,
+          subtopics,
+          content: finalContent,
+          timestamp: new Date().toISOString()
+      };
+      
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `lms_export_${topic.replace(/\s+/g, '_')}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      alert("Simulated 'Push to LMS' - JSON downloaded.");
   };
 
   const handleGenerate = () => {
-      // In a real app we'd pass transcript to the store, but for now we haven't updated the store to hold transcript.
-      // We pass it to the hook? The hook uses store...
-      // Wait, useGeneration hook pulls from store. 
-      // I should update useGeneration hook to accept overrides or store transcript.
-      // For now, let's update the store to handle transcript or just pass it?
-      // Actually, the hook calls startGeneration() with no args and reads from store.
-      // I need to add setTranscript to store.
-      // But for speed, I will Hack: The hook reads from store. I didn't add transcript to store.
-      // I will add transcript to store in a minute.
-      // Let's assume I did.
-      startGeneration(); // This reads from store used in hook... which I need to update.
+      startGeneration(); 
   };
+  
+  // Use hook's transcript (from store)
+  const { transcript } = useGeneration(); 
 
   return (
     <div className="h-full flex flex-col">
       <div className="flex justify-between items-start mb-6 gap-4">
+        {/* ... INPUTS ... */}
         <div className="flex-1 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <input 
                     value={topic}
                     onChange={(e) => setTopic(e.target.value)}
                     placeholder="Topic (e.g. Intro to ML)"
-                    className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
+                    className="px-4 py-2 rounded-lg border border-gray-300 bg-white"
                 />
                 <input 
                     value={subtopics}
                     onChange={(e) => setSubtopics(e.target.value)}
                     placeholder="Subtopics (comma separated)"
-                    className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
+                    className="px-4 py-2 rounded-lg border border-gray-300 bg-white"
                 />
             </div>
             
-            <div className="flex gap-4 items-center">
-                 <div className="flex items-center gap-2 bg-white dark:bg-gray-800 p-1 rounded-lg border border-gray-200 dark:border-gray-700">
+            <div className="flex gap-4 items-center flex-wrap">
+                 <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-gray-200">
                     {(['lecture', 'pre-read', 'assignment'] as ContentMode[]).map((m) => (
                         <button
                             key={m}
                             onClick={() => setMode(m)}
                             className={`px-3 py-1.5 text-sm font-medium rounded-md capitalize transition-colors
                                 ${mode === m 
-                                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' 
-                                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                                    ? 'bg-blue-100 text-blue-700' 
+                                    : 'text-gray-600 hover:bg-gray-100'}`}
                         >
                             {m}
                         </button>
@@ -81,23 +94,30 @@ export default function EditorPage() {
                     onClick={() => setShowTranscript(!showTranscript)}
                     className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors
                         ${showTranscript || transcript
-                            ? 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300'
-                            : 'bg-white border-gray-300 text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-300'}`}
+                            ? 'bg-blue-50 border-blue-200 text-blue-700'
+                            : 'bg-white border-gray-300 text-gray-700'}`}
                  >
                     <FileText size={16} />
                     {transcript ? 'Transcript Added' : 'Add Transcript'}
                  </button>
+                 
+                 <label className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 bg-white hover:bg-gray-50 cursor-pointer">
+                    <span className="text-gray-700">Upload .txt</span>
+                    <input type="file" accept=".txt,.md" onChange={handleFileUpload} className="hidden" />
+                 </label>
+                 
+                 <button 
+                    onClick={handlePushToLMS}
+                    disabled={!finalContent}
+                    className="px-3 py-1.5 text-sm font-medium text-green-700 bg-green-100 border border-green-200 rounded-lg disabled:opacity-50"
+                 >
+                    Push to LMS
+                 </button>
             </div>
         </div>
         
+        {/* ... GENERATE ... */}
         <div className="flex gap-2 items-center">
-             <button  
-                 onClick={() => setShowSettings(!showSettings)}
-                 className="p-2 text-gray-500 hover:bg-gray-100 rounded-full"
-             >
-                 <Settings size={20} />
-             </button>
-             
            <button 
              onClick={startGeneration}
              disabled={status === 'generating' || !topic}
@@ -112,29 +132,13 @@ export default function EditorPage() {
         </div>
       </div>
 
-      {showSettings && (
-          <div className="mb-4 p-4 bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-800 rounded-lg flex gap-2 items-center">
-              <input 
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="Enter Anthropic API Key"
-                  className="flex-1 px-3 py-1.5 border rounded"
-              />
-              <button onClick={handleSaveKey} className="text-sm font-semibold text-yellow-800 dark:text-yellow-200">Save</button>
-          </div>
-      )}
-
-      {showTranscript && (
+      {(showTranscript || transcript) && (
           <div className="mb-6">
               <textarea
                   value={transcript}
-                  onChange={(e) => {
-                      setTranscript(e.target.value);
-                      hookSetTranscript(e.target.value);
-                  }}
+                  onChange={(e) => hookSetTranscript(e.target.value)}
                   placeholder="Paste lecture transcript here for analysis and context..."
-                  className="w-full h-32 p-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none resize-y"
+                  className="w-full h-32 p-3 rounded-lg border border-gray-300 bg-white text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none resize-y"
               />
           </div>
       )}
@@ -150,8 +154,8 @@ export default function EditorPage() {
       )}
 
       <div className="flex-1 grid grid-cols-2 gap-6 min-h-0">
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 flex flex-col overflow-hidden">
-          <div className="p-3 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 flex justify-between items-center">
+        <div className="bg-white rounded-xl border border-gray-200 flex flex-col overflow-hidden">
+          <div className="p-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Editor (Markdown)</span>
           </div>
           <div className="flex-1 p-0 overflow-hidden">
@@ -164,11 +168,11 @@ export default function EditorPage() {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 flex flex-col overflow-hidden">
-          <div className="p-3 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 flex justify-between items-center">
+        <div className="bg-white rounded-xl border border-gray-200 flex flex-col overflow-hidden">
+          <div className="p-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Preview (Rendered)</span>
           </div>
-           <div className="flex-1 p-4 overflow-auto prose dark:prose-invert max-w-none">
+           <div className="flex-1 p-4 overflow-auto prose max-w-none">
              {finalContent ? <ReactMarkdown>{finalContent}</ReactMarkdown> : <p className="text-gray-400 italic">Preview will appear here...</p>}
           </div>
         </div>

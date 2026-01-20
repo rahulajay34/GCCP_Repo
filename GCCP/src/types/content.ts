@@ -27,6 +27,7 @@ export interface GenerationState {
   agentProgress: Record<string, AgentStatus>;
   gapAnalysis: GapAnalysisResult | null;
   finalContent: string | null;
+  logs: Array<{ message: string; type: string; timestamp: number }>;
   createdAt: number;
   updatedAt: number;
 }
