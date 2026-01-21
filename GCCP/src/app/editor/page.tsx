@@ -9,11 +9,12 @@ import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github.css';
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import debounce from 'lodash/debounce';
-import { FileText, Loader2, Download, RefreshCw, Square, Trash2 } from 'lucide-react';
+import { FileText, Loader2, Download, RefreshCw, Square, Trash2, Activity } from 'lucide-react';
 import { Mermaid } from '@/components/ui/Mermaid';
 import { GapAnalysisPanel } from '@/components/editor/GapAnalysis';
+import { MetricsDashboard } from '@/components/editor/MetricsDashboard';
 import { ContentMode } from '@/types/content';
 import { GenerationStepper } from '@/components/editor/GenerationStepper';
 import { AssignmentWorkspace } from '@/components/editor/AssignmentWorkspace';
@@ -25,10 +26,12 @@ export default function EditorPage() {
       setTopic, setSubtopics, setMode, setTranscript: hookSetTranscript, startGeneration, stopGeneration, clearStorage,
       setContent, setFormattedContent,
       currentAgent, currentAction,
-      assignmentCounts, setAssignmentCounts
+      assignmentCounts, setAssignmentCounts,
+      estimatedCost
   } = useGeneration();
   
   const [showTranscript, setShowTranscript] = useState(false);
+  const [showMetrics, setShowMetrics] = useState(false);
   
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -79,13 +82,36 @@ export default function EditorPage() {
   // 1. Add this ref for auto-scrolling (within preview panel only)
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Debounced content update to prevent lag
-  const debouncedSetContent = useCallback(
-    debounce((value: string) => {
-      setContent(value);
-    }, 300),
+  // Local state for immediate editor updates
+  const [localContent, setLocalContent] = useState('');
+
+  // Sync local content with store content when generation updates (streaming)
+  useEffect(() => {
+    if (finalContent !== undefined && finalContent !== null) {
+      setLocalContent(finalContent);
+    }
+  }, [finalContent]);
+
+  // Debounced content update for PREVIEW/STORE to prevent lag
+  // Using useMemo + cleanup to prevent memory leaks
+  const debouncedSetContent = useMemo(
+    () => debounce((value: string) => setContent(value), 300),
     [setContent]
   );
+  
+  // Cleanup debounced function on unmount
+  useEffect(() => {
+    return () => {
+      debouncedSetContent.cancel();
+    };
+  }, [debouncedSetContent]);
+  
+  // Handler for user typing
+  const handleEditorChange = (value: string | undefined) => {
+    const val = value || '';
+    setLocalContent(val); // Immediate update for Editor
+    debouncedSetContent(val); // Delayed update for Store/Preview
+  };
 
       // Auto-scroll within preview panel only - NOT the whole page
       // This effect is now disabled to let users scroll freely
@@ -219,6 +245,15 @@ export default function EditorPage() {
                   <Trash2 size={20} />
               </button>
            )}
+           
+           <button 
+              onClick={() => setShowMetrics(true)}
+              className="p-2.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+              title="Performance Metrics"
+           >
+              <Activity size={20} />
+           </button>
+           {showMetrics && <MetricsDashboard onClose={() => setShowMetrics(false)} />}
 
            {status === 'generating' ? (
                 <button 
@@ -241,6 +276,14 @@ export default function EditorPage() {
                   <RefreshCw size={16} />
                   Generate
                 </button>
+           )}
+           
+           {/* Cost Badge - Show after completion */}
+           {status === 'complete' && estimatedCost !== undefined && estimatedCost > 0 && (
+               <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-700">
+                   <span className="font-medium">Cost:</span>
+                   <span className="font-bold">${estimatedCost.toFixed(4)}</span>
+               </div>
            )}
         </div>
       </div>
@@ -393,8 +436,8 @@ export default function EditorPage() {
                  <Editor
                     height="100%"
                     defaultLanguage="markdown"
-                    defaultValue={finalContent || ''}
-                    onChange={(value) => debouncedSetContent(value || '')}
+                    value={localContent}
+                    onChange={handleEditorChange}
                     theme="light"
                     loading={<div className="flex items-center justify-center h-full"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>}
                     options={{

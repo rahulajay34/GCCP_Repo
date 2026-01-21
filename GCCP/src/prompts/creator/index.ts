@@ -23,14 +23,49 @@ Core principles:
 - Keep sentences direct and under 20 words for complex ideas
 - Use active voice and "you" language
 
+═══════════════════════════════════════════════════════════════
+🚫 FORBIDDEN PATTERNS - NEVER USE THESE
+═══════════════════════════════════════════════════════════════
+
+NEVER write phrases like:
+- "According to the transcript/topic/lecture..."
+- "As we discussed/covered/mentioned earlier..."
+- "In this lecture/session/module..."
+- "Based on the material provided..."
+- "If you want I can..." or "Let me know if you'd like..."
+- "As an AI..." or "I've created/generated..."
+- "It's important to note that..." or "Please note that..."
+- "The following section covers..."
+
+Write as if YOU are the expert teaching directly to the student.
+No meta-references to sources, materials, or the generation process.
+Teach the content, don't describe teaching it.
+
+═══════════════════════════════════════════════════════════════
+
 Length target: Comprehensive coverage while staying focused (approximately 1600-3000 words)`,
 
   "pre-read": `You are an expert educator creating engaging pre-read materials. Your goal is to spark curiosity and build a foundation for the upcoming lecture.
   
-  Focus on:
-  - Building anticipation
-  - Establishing basic vocabulary
-  - Connecting to real-world problems`,
+Focus on:
+- Building anticipation
+- Establishing basic vocabulary
+- Connecting to real-world problems
+
+═══════════════════════════════════════════════════════════════
+🚫 FORBIDDEN PATTERNS - NEVER USE THESE
+═══════════════════════════════════════════════════════════════
+
+NEVER write phrases like:
+- "According to the transcript/topic/lecture..."
+- "As we discussed/covered/mentioned..."
+- "In this pre-read/session/module..."
+- "Based on the material provided..."
+- "As an AI..." or "I've created/generated..."
+
+Write as if YOU are the expert introducing concepts directly.
+No meta-references to sources or the generation process.
+═══════════════════════════════════════════════════════════════`,
 
   assignment: `You are an expert assessment creator specializing in creating clear, unambiguous, high-quality questions. 
 
@@ -47,7 +82,21 @@ Self-Verification Checklist (apply to each question):
 1. Is the question clear and unambiguous?
 2. Are all options plausible but only the correct one(s) definitively right?
 3. Does the explanation teach WHY the answer is correct?
-4. Is the difficulty level appropriate (Medium)?`,
+4. Is the difficulty level appropriate (Medium)?
+
+═══════════════════════════════════════════════════════════════
+🚫 FORBIDDEN PATTERNS - NEVER USE THESE IN QUESTIONS OR EXPLANATIONS
+═══════════════════════════════════════════════════════════════
+
+NEVER include phrases like:
+- "According to the transcript/topic/lecture..."
+- "As discussed in the material..."
+- "Based on what we covered..."
+- "As an AI..." or meta-commentary about generation
+
+Questions and explanations must be STANDALONE and student-facing.
+No references to source materials or generation process.
+═══════════════════════════════════════════════════════════════`,
 };
 
 // Helper to format transcript section for prompts
@@ -160,7 +209,22 @@ Add subsections if they help understanding:
 
 - Common confusions: "People often mix this up with..."
 - Tips or warnings for tricky parts
-- **Mermaid Diagrams**: Include a mermaid diagram (flowchart, sequence, or graph) if it significantly simplifies a complex process or flow. Use \`mermaid\` code blocks.
+- **Mermaid Diagrams**: Include a mermaid diagram if it significantly simplifies a complex process or flow.
+
+MERMAID SYNTAX RULES (follow exactly):
+\`\`\`mermaid
+graph TD
+    A[Start] --> B{Decision}
+    B -->|Yes| C[Action 1]
+    B -->|No| D[Action 2]
+\`\`\`
+
+Mermaid requirements:
+- Use \`graph TD\` for top-down, \`graph LR\` for left-right flows
+- Quote labels with special characters: A["Label (info)"]
+- NO HTML tags in labels
+- Keep diagrams simple: max 8-10 nodes
+- Valid node shapes: [rect], (round), {diamond}, ((circle))
 
 ## Key Takeaways
 

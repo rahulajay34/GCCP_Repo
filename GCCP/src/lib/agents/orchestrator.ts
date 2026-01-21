@@ -1,31 +1,30 @@
 import { AnthropicClient } from "@/lib/anthropic/client";
 import { CreatorAgent } from "./creator";
 import { AnalyzerAgent } from "./analyzer";
-import { SanitizerAgent } from "./sanitizer";
 import { RefinerAgent } from "./refiner";
 import { FormatterAgent } from "./formatter";
-import { ReviewerAgent } from "./reviewer"; // NEW
+import { ValidatorAgent } from "./validator";
+import { sanitizeAIPatterns } from "./utils/content-sanitizer";
 import { GenerationParams, GenerationState } from "@/types/content";
 import { AuthManager } from "@/lib/storage/auth";
 import { calculateCost, estimateTokens } from "@/lib/anthropic/token-counter";
+import { cacheGapAnalysis, simpleHash } from "@/lib/utils/cache";
 
 export class Orchestrator {
   private client: AnthropicClient;
   private creator: CreatorAgent;
   private analyzer: AnalyzerAgent;
-  private sanitizer: SanitizerAgent;
+  private validator: ValidatorAgent;
   private refiner: RefinerAgent;
   private formatter: FormatterAgent;
-  private reviewer: ReviewerAgent; // NEW
 
   constructor(apiKey: string) {
     this.client = new AnthropicClient(apiKey);
     this.creator = new CreatorAgent(this.client);
     this.analyzer = new AnalyzerAgent(this.client);
-    this.sanitizer = new SanitizerAgent(this.client);
+    this.validator = new ValidatorAgent(this.client);
     this.refiner = new RefinerAgent(this.client);
     this.formatter = new FormatterAgent(this.client);
-    this.reviewer = new ReviewerAgent(this.client); // NEW
   }
 
   async *generate(params: GenerationParams, signal?: AbortSignal) {
@@ -46,9 +45,17 @@ export class Orchestrator {
       };
 
       try {
-        const analysis = await this.analyzer.analyze(subtopics, transcript, signal);
+        // Use smart caching for gap analysis - avoids redundant API calls for same inputs
+        const cacheKey = `${topic}:${subtopics.slice(0, 100)}`;
+        const analysis = await cacheGapAnalysis(
+          cacheKey,
+          transcript,
+          subtopics,
+          () => this.analyzer.analyze(subtopics, transcript, signal)
+        );
         gapAnalysisResult = analysis; // Store for passing to creator
-        // Calculate rough cost for analysis
+
+        // Calculate rough cost for analysis (only if not cached)
         const inputTok = estimateTokens(this.analyzer.formatUserPrompt(subtopics, transcript));
         const outputTok = estimateTokens(JSON.stringify(analysis));
         const stepCost = calculateCost("claude-haiku-4-5-20251001", inputTok, outputTok);
@@ -123,54 +130,28 @@ export class Orchestrator {
       const creatorCost = calculateCost("claude-sonnet-4-5-20250929", inputTokens, outputTokens);
       currentCost += creatorCost;
 
-      // 3. Strictness Check (Sanitizer) - ONLY if transcript exists AND is relevant
-      if (useTranscript && transcript) {
-        yield {
-          type: "step",
-          agent: "Sanitizer",
-          action: "Verifying facts against transcript...",
-          message: "Fact Checking"
-        };
-
-        const sanitized = await this.sanitizer.sanitize(currentContent, transcript, signal);
-        currentContent = sanitized; // Update content
-
-        // Cost for Sanitizer
-        const sInput = estimateTokens(transcript.slice(0, 50000) + currentContent);
-        const sOutput = estimateTokens(sanitized);
-        const sCost = calculateCost("claude-haiku-4-5-20251001", sInput, sOutput);
-        currentCost += sCost;
-
-        yield {
-          type: "replace",
-          content: currentContent
-        };
-      }
-
-      // 4. QUALITY GATE (The Token Saver)
+      // 3. Validator (Combined Fact Check + Quality Check)
       yield {
         type: "step",
-        agent: "Reviewer",
-        action: "Assessing draft quality...",
-        message: "Quality Check"
+        agent: "Validator",
+        action: "Verifying facts and assessing quality...",
+        message: "Validating"
       };
 
-      // Reviewer Logic
-      // Cost for Reviewer
-      const revInput = estimateTokens(currentContent + mode);
-      // Rough output estimate
-      const revOutput = 50;
-      const revCost = calculateCost("claude-haiku-4-5-20251001", revInput, revOutput);
-      currentCost += revCost;
+      // Cost for Validator
+      const valInput = estimateTokens((useTranscript ? transcript?.slice(0, 50000) : '') + currentContent);
+      const valOutput = 200; // rough estimate for JSON feedback
+      const valCost = calculateCost("claude-haiku-4-5-20251001", valInput, valOutput);
+      currentCost += valCost;
 
-      const review = await this.reviewer.review(currentContent, mode);
+      const validation = await this.validator.validate(currentContent, transcript || null, mode);
 
-      if (review.needsPolish) {
+      if (!validation.isValid) {
         // Only run Refiner if needed
         yield {
           type: "step",
           agent: "Refiner",
-          action: `Polishing: ${review.feedback}`,
+          action: `Polishing: ${validation.feedback}`,
           message: "Polishing Content"
         };
 
@@ -191,7 +172,7 @@ export class Orchestrator {
         // We do NOT wipe content here anymore (yield { type: "replace", content: "" })
         // because we are patching, not rewriting entirely.
 
-        const refinerStream = this.refiner.refineStream(currentContent, review.feedback, signal);
+        const refinerStream = this.refiner.refineStream(currentContent, validation.feedback, signal);
         let patchOutput = "";
 
         for await (const chunk of refinerStream) {
@@ -241,17 +222,17 @@ export class Orchestrator {
           };
         }
 
-        // Cost for Refiner
-        const rInput = estimateTokens(params.topic + currentContent); // currentContent was pre-refinement
-        const rOutput = estimateTokens(refined);
+        // Cost for Refiner (use patchOutput since refined was never assigned)
+        const rInput = estimateTokens(currentContent + (validation.feedback || ''));
+        const rOutput = estimateTokens(patchOutput);
         const rCost = calculateCost("claude-sonnet-4-5-20250929", rInput, rOutput);
         currentCost += rCost;
 
       } else {
         yield {
           type: "step",
-          agent: "Reviewer",
-          action: "Draft meets Gold Standard. Skipping Polish.",
+          agent: "Validator",
+          action: "Content meets standards. Skipping Polish.",
           message: "Quality Assured"
         };
       }
@@ -276,6 +257,16 @@ export class Orchestrator {
         yield {
           type: "formatted",
           content: formatted
+        };
+      }
+
+      // Final cleanup: Remove any AI-sounding patterns that slipped through
+      // Only for lecture/pre-read modes (assignment content is structured JSON)
+      if (mode !== 'assignment') {
+        currentContent = sanitizeAIPatterns(currentContent);
+        yield {
+          type: "replace",
+          content: currentContent
         };
       }
 

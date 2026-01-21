@@ -18,6 +18,49 @@ export class AnthropicClient {
     });
   }
 
+  /**
+   * Retry wrapper with exponential backoff for transient API errors
+   */
+  private async withRetry<T>(
+    fn: () => Promise<T>,
+    maxRetries = 3,
+    signal?: AbortSignal
+  ): Promise<T> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      // Check abort signal before each attempt
+      if (signal?.aborted) {
+        throw new Error('Aborted');
+      }
+
+      try {
+        return await fn();
+      } catch (err: any) {
+        lastError = err;
+
+        // Don't retry on abort
+        if (err?.name === 'AbortError' || signal?.aborted) {
+          throw err;
+        }
+
+        // Retry on rate limits (429) or server errors (5xx)
+        const status = err?.status || err?.response?.status;
+        if (status === 429 || (status >= 500 && status < 600)) {
+          const delay = Math.pow(2, attempt) * 1000 + Math.random() * 500;
+          console.warn(`API error (${status}), retrying in ${delay}ms... (attempt ${attempt + 1}/${maxRetries})`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+
+        // Don't retry other errors (auth, bad request, etc.)
+        throw err;
+      }
+    }
+
+    throw lastError || new Error('Max retries exceeded');
+  }
+
   async generate(params: {
     system: string;
     messages: Anthropic.MessageParam[];
@@ -26,13 +69,17 @@ export class AnthropicClient {
     temperature?: number;
     signal?: AbortSignal;
   }) {
-    return this.client.messages.create({
-      model: params.model,
-      max_tokens: params.maxTokens || 4096,
-      messages: params.messages,
-      system: params.system,
-      temperature: params.temperature || 0.7,
-    }, { signal: params.signal });
+    return this.withRetry(
+      () => this.client.messages.create({
+        model: params.model,
+        max_tokens: params.maxTokens || 4096,
+        messages: params.messages,
+        system: params.system,
+        temperature: params.temperature || 0.7,
+      }, { signal: params.signal }),
+      3,
+      params.signal
+    );
   }
 
   async *stream(params: {
@@ -43,14 +90,19 @@ export class AnthropicClient {
     temperature?: number;
     signal?: AbortSignal;
   }) {
-    const stream = await this.client.messages.create({
-      model: params.model,
-      max_tokens: params.maxTokens || 4096,
-      messages: params.messages,
-      system: params.system,
-      temperature: params.temperature || 0.7,
-      stream: true,
-    }, { signal: params.signal });
+    // For streaming, we wrap just the initial connection in retry logic
+    const stream = await this.withRetry(
+      () => this.client.messages.create({
+        model: params.model,
+        max_tokens: params.maxTokens || 4096,
+        messages: params.messages,
+        system: params.system,
+        temperature: params.temperature || 0.7,
+        stream: true,
+      }, { signal: params.signal }),
+      3,
+      params.signal
+    );
 
     for await (const chunk of stream) {
       if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {

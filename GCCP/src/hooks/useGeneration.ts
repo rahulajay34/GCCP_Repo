@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useGenerationStore } from '@/lib/store/generation';
 import { Orchestrator } from '@/lib/agents/orchestrator';
 import { AuthManager } from '@/lib/storage/auth';
@@ -9,6 +9,16 @@ export const useGeneration = () => {
     const store = useGenerationStore();
     const [error, setError] = useState<string | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
+
+    // Cleanup AbortController on unmount to prevent memory leaks
+    useEffect(() => {
+        return () => {
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+                abortControllerRef.current = null;
+            }
+        };
+    }, []);
 
     const stopGeneration = () => {
         if (abortControllerRef.current) {
@@ -50,8 +60,8 @@ export const useGeneration = () => {
         }
 
         store.setStatus('generating');
-        store.setContent('');
-        store.setFormattedContent('');
+        store.clearGenerationState();
+        store.setStatus('generating');
         setError(null);
         store.addLog(`Starting generation for topic: ${store.topic}`, 'info');
 
@@ -90,6 +100,11 @@ export const useGeneration = () => {
                 } else if (event.type === 'complete') {
                     store.setStatus('complete');
                     store.addLog('Generation completed successfully', 'success');
+
+                    // Track estimated cost
+                    if (typeof event.cost === 'number') {
+                        store.setEstimatedCost(event.cost);
+                    }
 
                     // Persist to DB
                     try {
@@ -144,6 +159,7 @@ export const useGeneration = () => {
         ...store,
         logs: store.logs,
         formattedContent: store.formattedContent,
+        estimatedCost: store.estimatedCost,
         setTranscript: store.setTranscript,
         setFormattedContent: store.setFormattedContent,
         error,

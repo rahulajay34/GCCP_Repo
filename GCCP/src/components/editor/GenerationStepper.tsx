@@ -1,12 +1,13 @@
 'use client';
-import { useState } from 'react';
-import { CheckCircle2, Circle, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { CheckCircle2, Circle, Loader2, ChevronDown, ChevronUp, Clock } from 'lucide-react';
 
 interface Log {
     type: string;
     message?: string;
     agent?: string;
     content?: any;
+    timestamp?: number;
 }
 
 interface StepperProps {
@@ -16,9 +17,20 @@ interface StepperProps {
     hasTranscript?: boolean;
 }
 
+// Average durations per agent (in seconds) - based on typical usage
+const AVERAGE_STAGE_TIMES: Record<string, number> = {
+    Analyzer: 4,
+    Creator: 12,
+    Sanitizer: 6,
+    Reviewer: 3,
+    Refiner: 8,
+    Formatter: 4,
+};
+
 // Define the full agent pipeline
 const getAgentPipeline = (mode: string = 'lecture', hasTranscript: boolean = false) => {
     const pipeline = [
+        hasTranscript ? { id: 'Analyzer', label: 'Analyzing', required: true } : null,
         { id: 'Creator', label: 'Drafting', required: true },
         { id: 'Sanitizer', label: 'Fact Checking', required: hasTranscript },
         { id: 'Reviewer', label: 'Quality Review', required: true },
@@ -29,8 +41,41 @@ const getAgentPipeline = (mode: string = 'lecture', hasTranscript: boolean = fal
     return pipeline;
 };
 
+// Format seconds to readable time
+const formatTime = (seconds: number): string => {
+    if (seconds < 60) return `~${Math.ceil(seconds)}s`;
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.ceil(seconds % 60);
+    return `~${mins}m ${secs}s`;
+};
+
 export function GenerationStepper({ logs, status, mode = 'lecture', hasTranscript = false }: StepperProps) {
     const [isExpanded, setIsExpanded] = useState(false);
+    const [elapsedTime, setElapsedTime] = useState(0);
+    const startTimeRef = useRef<number | null>(null);
+    
+    // Start timer when generation begins
+    useEffect(() => {
+        if (status === 'generating' && !startTimeRef.current) {
+            startTimeRef.current = Date.now();
+        }
+        if (status !== 'generating') {
+            startTimeRef.current = null;
+        }
+    }, [status]);
+    
+    // Update elapsed time every second
+    useEffect(() => {
+        if (status !== 'generating') return;
+        
+        const interval = setInterval(() => {
+            if (startTimeRef.current) {
+                setElapsedTime(Math.floor((Date.now() - startTimeRef.current) / 1000));
+            }
+        }, 1000);
+        
+        return () => clearInterval(interval);
+    }, [status]);
     
     // Filter out only relevant steps to show in the UI
     const completedSteps = logs.filter(l => l.type === 'step');
@@ -44,6 +89,14 @@ export function GenerationStepper({ logs, status, mode = 'lecture', hasTranscrip
         completedSteps.some(s => s.agent === stage.id)
     ).length;
     const progressPercent = pipeline.length > 0 ? (completedCount / pipeline.length) * 100 : 0;
+    
+    // Estimate remaining time
+    const remainingStages = pipeline.filter(stage => 
+        !completedSteps.some(s => s.agent === stage.id)
+    );
+    const estimatedRemaining = remainingStages.reduce((sum, stage) => 
+        sum + (AVERAGE_STAGE_TIMES[stage.id] || 5), 0
+    );
 
     return (
         <div className="mb-4 bg-white p-3 rounded-xl border border-gray-200 shadow-sm animate-in fade-in slide-in-from-top-2">
@@ -93,6 +146,21 @@ export function GenerationStepper({ logs, status, mode = 'lecture', hasTranscrip
                     {isExpanded ? 'Less' : 'More'}
                 </button>
             </div>
+            
+            {/* Time Estimation */}
+            {status === 'generating' && (
+                <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                    <div className="flex items-center gap-1.5">
+                        <Clock size={12} className="text-gray-400" />
+                        <span>Elapsed: {formatTime(elapsedTime)}</span>
+                    </div>
+                    {estimatedRemaining > 0 && (
+                        <span className="text-blue-600 font-medium">
+                            ~{formatTime(estimatedRemaining)} remaining
+                        </span>
+                    )}
+                </div>
+            )}
             
             {/* Progress bar */}
             <div className="mt-2 h-1 bg-gray-100 rounded-full overflow-hidden">

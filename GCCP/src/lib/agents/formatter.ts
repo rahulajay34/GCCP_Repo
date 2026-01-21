@@ -1,6 +1,7 @@
 import { BaseAgent } from "./base-agent";
 import { AnthropicClient } from "@/lib/anthropic/client";
 import { parseLLMJson } from "./utils/json-parser";
+import { validateAssignment } from "./utils/assignment-validator";
 
 export class FormatterAgent extends BaseAgent {
     constructor(client: AnthropicClient) {
@@ -50,10 +51,46 @@ CRITICAL RULES:
 
         try {
             const parsed = await parseLLMJson<any[]>(text, []);
+
+            // Validate the structured output
+            const validation = validateAssignment(parsed);
+            if (!validation.isValid) {
+                console.warn("Assignment validation errors:", validation.errors);
+            }
+            if (validation.warnings.length > 0) {
+                console.info("Assignment validation warnings:", validation.warnings);
+            }
+
             // Return nicely formatted JSON string
             return JSON.stringify(parsed, null, 2);
         } catch (e) {
-            console.error("Formatter JSON parse error", e);
+            console.error("Formatter JSON parse error, attempting recovery", e);
+
+            // Attempt to salvage partial array - find complete question objects
+            try {
+                // Find all complete question objects by matching balanced braces
+                const questions: any[] = [];
+                const objectMatches = text.matchAll(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g);
+
+                for (const match of objectMatches) {
+                    try {
+                        const obj = JSON.parse(match[0]);
+                        if (obj.type && obj.question_text) {
+                            questions.push(obj);
+                        }
+                    } catch {
+                        // Skip malformed objects
+                    }
+                }
+
+                if (questions.length > 0) {
+                    console.log(`Recovered ${questions.length} questions from partial JSON`);
+                    return JSON.stringify(questions, null, 2);
+                }
+            } catch (recoveryError) {
+                console.error("Recovery also failed", recoveryError);
+            }
+
             return '[]';
         }
     }
