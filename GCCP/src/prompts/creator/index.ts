@@ -68,36 +68,57 @@ Write as if YOU are the expert introducing concepts directly.
 No meta-references to sources or the generation process.
 ═══════════════════════════════════════════════════════════════`,
 
-  assignment: `You are an expert assessment creator specializing in creating clear, unambiguous, high-quality questions. 
+  assignment: `You are an expert assessment creator using Chain of Thought reasoning to create high-quality questions.
 
-Your PRIMARY DIRECTIVE is to create EXACTLY the number of questions specified for each type. This is non-negotiable.
-
-Quality Standards:
-- Every question must be crystal clear with no ambiguity
-- Options must be distinct and plausible (no trick answers)
-- Correct answers must be definitively correct
-- Explanations must teach the concept, not just state the answer
-- Use markdown formatting in question text and explanations where helpful
-
-Self-Verification Checklist (apply to each question):
-1. Is the question clear and unambiguous?
-2. Are all options plausible but only the correct one(s) definitively right?
-3. Does the explanation teach WHY the answer is correct?
-4. Is the difficulty level appropriate (Medium)?
+Your PRIMARY DIRECTIVE is to create EXACTLY the number of questions specified. This is non-negotiable.
 
 ═══════════════════════════════════════════════════════════════
-🚫 FORBIDDEN PATTERNS - NEVER USE THESE IN QUESTIONS OR EXPLANATIONS
+📋 CHAIN OF THOUGHT PROCESS (Use this for EACH question)
 ═══════════════════════════════════════════════════════════════
 
-NEVER include phrases like:
+1. DRAFT: Write the question targeting a specific concept
+2. CRITIQUE: Is it clear? Are options plausible? Is exactly one/multiple correct?
+3. REFINE: Fix any issues found in critique
+4. FORMAT: Output the final JSON structure
+
+═══════════════════════════════════════════════════════════════
+📦 REQUIRED OUTPUT SCHEMA (Follow EXACTLY)
+═══════════════════════════════════════════════════════════════
+
+Each question MUST have this EXACT structure:
+{
+  "questionType": "mcsc" | "mcmc" | "subjective",
+  "contentBody": "Question text with markdown...",
+  "options": {
+    "1": "First option text",
+    "2": "Second option text", 
+    "3": "Third option text",
+    "4": "Fourth option text"
+  },
+  "mcscAnswer": 2,              // For mcsc ONLY: number 1-4
+  "mcmcAnswer": "1, 3",         // For mcmc ONLY: comma-separated numbers
+  "subjectiveAnswer": "...",    // For subjective ONLY: model answer
+  "difficultyLevel": "Medium",
+  "answerExplanation": "Detailed teaching explanation..."
+}
+
+CRITICAL CONSTRAINTS:
+• mcsc: EXACTLY one mcscAnswer (number 1-4), no mcmcAnswer
+• mcmc: 2-3 correct in mcmcAnswer (e.g., "1, 4"), no mcscAnswer  
+• subjective: subjectiveAnswer required, options can be empty strings
+• ALL question types MUST have options object with keys 1-4
+
+═══════════════════════════════════════════════════════════════
+🚫 FORBIDDEN PATTERNS
+═══════════════════════════════════════════════════════════════
+
+NEVER write:
 - "According to the transcript/topic/lecture..."
 - "As discussed in the material..."
-- "Based on what we covered..."
-- "As an AI..." or meta-commentary about generation
+- "As an AI..." or meta-commentary
+- References to source materials
 
-Questions and explanations must be STANDALONE and student-facing.
-No references to source materials or generation process.
-Do not include "Hint" or "Note" sections unless they are part of the explanation.
+Questions must be STANDALONE and student-facing.
 ═══════════════════════════════════════════════════════════════`,
 };
 
@@ -327,75 +348,102 @@ Important: Write naturally. Never mention the word "analogy" explicitly. Never r
     const total = mcsc + mcmc + subjective;
     return `Topic: ${topic}
 Key Concepts: ${subtopics}
-Difficulty: Medium
 
 ═══════════════════════════════════════════════════════════════
 ⚠️  CRITICAL REQUIREMENT - EXACT QUESTION COUNTS ⚠️
 ═══════════════════════════════════════════════════════════════
 
-You MUST create EXACTLY these quantities (no more, no less):
-• MCSC (Multiple Choice Single Correct): ${mcsc} questions
-• MCMC (Multiple Choice Multiple Correct): ${mcmc} questions  
-• Subjective (Open-ended): ${subjective} questions
+You MUST create EXACTLY:
+• mcsc (Multiple Choice Single Correct): ${mcsc} questions
+• mcmc (Multiple Choice Multiple Correct): ${mcmc} questions  
+• subjective (Open-ended): ${subjective} questions
 
-TOTAL: ${total} questions
-
-FAILURE TO MATCH THESE EXACT COUNTS IS UNACCEPTABLE.
+TOTAL: ${total} questions - NO MORE, NO LESS
 
 ═══════════════════════════════════════════════════════════════
+📦 EXACT JSON STRUCTURE REQUIRED
+═══════════════════════════════════════════════════════════════
 
-**Format Requirements:**
+Output a JSON array where EACH question follows this EXACT structure:
 
-For MCSC questions:
-- Write clear, specific question text
-- Provide exactly 4 plausible options
-- Ensure only ONE is definitively correct
-- Use "correct_option": "A" (or B, C, D) for the single correct answer
-- Write explanations that teach why the correct answer works and why others don't
-
-For MCMC questions:
-- Write clear question text (include phrase like "Select all that apply" or indicate multiple answers)
-- Provide exactly 4 options
-- Ensure 2-3 are correct
-- Use "correct_option": "A,C" format (comma-separated letters for multiple correct)
-- Explain why EACH correct answer is right
-
-For Subjective questions:
-- Write open-ended questions requiring explanation or demonstration
-- **model_answer**: The ideal answer a student should provide
-- **explanation**: Detailed explanation and key points to cover
-
-**MARKDOWN FORMATTING FOR CODE (CRITICAL):**
-When including code in question_text or explanation, you MUST use proper markdown code blocks:
-- Use TRIPLE BACKTICKS with language identifier, like: \`\`\`python ... \`\`\`
-- NEVER write code inline without proper code block formatting
-- Inside JSON strings, escape newlines as \\n
-- **IMPORTANT**: The backticks MUST be present in the final string value.
-- Example of properly formatted question_text with code:
-  "What will be the output of the following **nested loop** code?\\n\\n\`\`\`python\\nfor i in range(1, 4):\\n    for j in range(i):\\n        print(i, end=' ')\\n    print()\\n\`\`\`"
-
-**Quality Checklist (verify each question):**
-✓ Question is unambiguous - only one interpretation possible
-✓ Options are plausible - no obviously wrong "filler" options
-✓ Correct answer is definitively correct - no debate possible
-✓ Explanation teaches the concept - not just "A is correct because A is right"
-✓ Code blocks use triple backticks with language identifier
-
-**CRITICAL OUTPUT RULES:**
-1. Output ONLY a valid JSON array wrapped in a \`\`\`json code block
-2. All content must be final, student-facing - NO internal notes or meta-commentary
-3. Use **Markdown** formatting within question_text and explanation fields
-4. Escape newlines as \\n in JSON strings
-
+**For mcsc (single correct answer):**
 \`\`\`json
-[
-  { "type": "MCSC", "question_text": "What is the output?\\n\\n\`\`\`python\\nprint('Hello')\\n\`\`\`", "options": ["Hello", "hello", "Error", "None"], "correct_option": "A", "explanation": "The print() function outputs exactly what is in quotes." },
-  { "type": "MCMC", "question_text": "Which are valid? (Select all)", "options": ["...", "...", "...", "..."], "correct_option": "A,C", "explanation": "..." },
-  { "type": "Subjective", "question_text": "...", "model_answer": "...", "explanation": "..." }
-]
+{
+  "questionType": "mcsc",
+  "contentBody": "Clear question text with markdown...",
+  "options": {
+    "1": "First option",
+    "2": "Second option",
+    "3": "Third option",
+    "4": "Fourth option"
+  },
+  "mcscAnswer": 2,
+  "difficultyLevel": "Medium",
+  "answerExplanation": "Teaching explanation..."
+}
 \`\`\`
 
-REMINDER: Create EXACTLY ${mcsc} MCSC, ${mcmc} MCMC, and ${subjective} Subjective questions.`;
+**For mcmc (multiple correct answers):**
+\`\`\`json
+{
+  "questionType": "mcmc",
+  "contentBody": "Question text (Select all that apply)...",
+  "options": {
+    "1": "First option",
+    "2": "Second option",
+    "3": "Third option",
+    "4": "Fourth option"
+  },
+  "mcmcAnswer": "1, 3",
+  "difficultyLevel": "Medium",
+  "answerExplanation": "Explain why each correct answer is right..."
+}
+\`\`\`
+
+**For subjective:**
+\`\`\`json
+{
+  "questionType": "subjective",
+  "contentBody": "Open-ended question...",
+  "options": { "1": "", "2": "", "3": "", "4": "" },
+  "subjectiveAnswer": "Model answer the student should provide...",
+  "difficultyLevel": "Medium",
+  "answerExplanation": "Key points to cover..."
+}
+\`\`\`
+
+═══════════════════════════════════════════════════════════════
+⚠️ CRITICAL CONSTRAINTS (VALIDATION WILL FAIL IF VIOLATED)
+═══════════════════════════════════════════════════════════════
+
+• mcsc: mcscAnswer must be a NUMBER (1, 2, 3, or 4), NOT a letter
+• mcmc: mcmcAnswer must have 2+ numbers as comma-separated string (e.g., "1, 4")
+• ALL questions MUST have options object with keys "1", "2", "3", "4"
+• Use "questionType" NOT "type"
+• Use "contentBody" NOT "question_text"
+• Use "answerExplanation" NOT "explanation"
+
+═══════════════════════════════════════════════════════════════
+🔴 MANDATORY CODE BLOCK FORMATTING (DO NOT SKIP THIS)
+═══════════════════════════════════════════════════════════════
+
+When including code in contentBody or answerExplanation:
+1. ALWAYS wrap code in triple backticks with language identifier
+2. Format: \`\`\`python\\n<code>\\n\`\`\`
+3. The BACKTICKS MUST be present in the final JSON string
+
+CORRECT example:
+"contentBody": "What is the output?\\n\\n\`\`\`python\\nfor i in range(3):\\n    print(i)\\n\`\`\`"
+
+WRONG example (missing backticks):
+"contentBody": "What is the output?\\n\\npython\\nfor i in range(3):\\n    print(i)"
+
+If you include any code WITHOUT triple backticks, validation WILL FAIL.
+
+**OUTPUT:**
+Output ONLY a valid JSON array wrapped in \`\`\`json ... \`\`\`
+
+REMINDER: EXACTLY ${mcsc} mcsc, ${mcmc} mcmc, ${subjective} subjective = ${total} total.`;
   }
   return `Create content for ${topic} covering ${subtopics}.`;
 };

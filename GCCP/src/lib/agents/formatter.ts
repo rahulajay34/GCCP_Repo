@@ -2,6 +2,11 @@ import { BaseAgent } from "./base-agent";
 import { AnthropicClient } from "@/lib/anthropic/client";
 import { parseLLMJson } from "./utils/json-parser";
 import { validateAssignment } from "./utils/assignment-validator";
+import {
+    AssignmentItem,
+    LegacyAssignmentQuestion,
+    convertLegacyToAssignmentItem
+} from "@/types/assignment";
 
 export class FormatterAgent extends BaseAgent {
     constructor(client: AnthropicClient) {
@@ -11,48 +16,71 @@ export class FormatterAgent extends BaseAgent {
     getSystemPrompt(): string {
         return `You are a Data Formatter.
 Your job is to convert assignment content into structured JSON format.
-CRITICAL: Preserve all markdown formatting inside question_text and explanation fields.
+CRITICAL: Preserve all markdown formatting inside contentBody and answerExplanation fields.
 This includes code blocks with triple backticks, bold text, etc.
 Do not strip or modify the content, only structure it as JSON.`;
     }
 
     async formatAssignment(content: string, signal?: AbortSignal): Promise<string> {
         // FAST PATH: Check if content is already valid JSON
-        // This avoids redundant LLM calls that often strip markdown formatting
         try {
             const fastParsed = await parseLLMJson<any[]>(content, []);
             if (fastParsed.length > 0) {
-                const fastValidation = validateAssignment(fastParsed);
-                if (fastValidation.isValid) {
-                    console.log("Formatter: Fast Path successful - skipping LLM");
-                    return JSON.stringify(fastParsed, null, 2);
+                // Check if it's already in new format
+                if (fastParsed[0].questionType) {
+                    const validated = this.ensureAssignmentItemFormat(fastParsed);
+                    const validation = validateAssignment(this.convertToLegacyForValidation(validated));
+                    if (validation.isValid) {
+                        console.log("Formatter: Fast Path (new format) - skipping LLM");
+                        return JSON.stringify(validated, null, 2);
+                    }
+                }
+                // Check if it's legacy format - convert it
+                if (fastParsed[0].type && fastParsed[0].question_text) {
+                    const validation = validateAssignment(fastParsed);
+                    if (validation.isValid) {
+                        console.log("Formatter: Fast Path (legacy format) - converting to new format");
+                        const converted = (fastParsed as LegacyAssignmentQuestion[]).map(convertLegacyToAssignmentItem);
+                        return JSON.stringify(converted, null, 2);
+                    }
                 }
             }
         } catch (e) {
-            // Check failed, proceed to LLM
+            // Fast path failed, proceed to LLM
         }
 
+        // LLM Path - ask model to format
         const prompt = `CONTENT:
 ${content}
 
 INSTRUCTIONS:
-Convert the above assignment content into the following JSON structure:
+Convert the above assignment content into the NEW JSON structure.
+
+OUTPUT SCHEMA (EXACT FORMAT REQUIRED):
 [
   {
-    "type": "MCSC" | "MCMC" | "Subjective",
-    "question_text": "... (preserve markdown including code blocks)",
-    "options": ["A", "B", "C", "D"], // if applicable
-    "correct_option": "A", // if MCSC, or "A,C" if MCMC
-    "explanation": "... (preserve markdown)",
-    "model_answer": "..." // if Subjective
+    "questionType": "mcsc" | "mcmc" | "subjective",
+    "contentBody": "Question text (preserve markdown)",
+    "options": {
+      "1": "First option",
+      "2": "Second option",
+      "3": "Third option",
+      "4": "Fourth option"
+    },
+    "mcscAnswer": 2,           // For mcsc: number 1-4
+    "mcmcAnswer": "1, 3",      // For mcmc: comma-separated numbers
+    "subjectiveAnswer": "...", // For subjective: model answer
+    "difficultyLevel": "Medium",
+    "answerExplanation": "... (preserve markdown)"
   }
 ]
 
 CRITICAL RULES:
-1. Preserve ALL markdown formatting in question_text and explanation fields
+1. Preserve ALL markdown formatting in contentBody and answerExplanation
 2. Code blocks with triple backticks MUST be preserved exactly
 3. Use \\n for newlines inside JSON strings
-4. Output ONLY the JSON array, no markdown wrapper`;
+4. Output ONLY the JSON array, no markdown wrapper
+5. Convert letter-based answers (A,B,C,D) to number-based (1,2,3,4)`;
 
         const response = await this.client.generate({
             system: this.getSystemPrompt(),
@@ -64,52 +92,140 @@ CRITICAL RULES:
         const textBlock = response.content.find(b => b.type === 'text');
         let text = textBlock?.type === 'text' ? textBlock.text : '[]';
 
-        // Fix: Strip markdown code blocks if present (Point 5.1 cleanup)
-        text = text.replace(/```json\n?|\n?```/g, '').trim();
+        // Only strip the OUTER markdown wrapper, NOT backticks inside JSON content
+        // This regex matches ```json at the very start and ``` at the very end
+        text = text.trim();
+        if (text.startsWith('```json')) {
+            text = text.slice(7);
+        } else if (text.startsWith('```')) {
+            text = text.slice(3);
+        }
+        if (text.endsWith('```')) {
+            text = text.slice(0, -3);
+        }
+        text = text.trim();
 
         try {
             const parsed = await parseLLMJson<any[]>(text, []);
-
-            // Validate the structured output
-            const validation = validateAssignment(parsed);
-            if (!validation.isValid) {
-                console.warn("Assignment validation errors:", validation.errors);
-            }
-            if (validation.warnings.length > 0) {
-                console.info("Assignment validation warnings:", validation.warnings);
-            }
-
-            // Return nicely formatted JSON string
-            return JSON.stringify(parsed, null, 2);
+            const formatted = this.ensureAssignmentItemFormat(parsed);
+            return JSON.stringify(formatted, null, 2);
         } catch (e) {
             console.error("Formatter JSON parse error, attempting recovery", e);
+            return this.attemptRecovery(text);
+        }
+    }
 
-            // Attempt to salvage partial array - find complete question objects
-            try {
-                // Find all complete question objects by matching balanced braces
-                const questions: any[] = [];
-                const objectMatches = text.matchAll(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g);
-
-                for (const match of objectMatches) {
-                    try {
-                        const obj = JSON.parse(match[0]);
-                        if (obj.type && obj.question_text) {
-                            questions.push(obj);
-                        }
-                    } catch {
-                        // Skip malformed objects
-                    }
-                }
-
-                if (questions.length > 0) {
-                    console.log(`Recovered ${questions.length} questions from partial JSON`);
-                    return JSON.stringify(questions, null, 2);
-                }
-            } catch (recoveryError) {
-                console.error("Recovery also failed", recoveryError);
+    /**
+     * Ensure all items conform to AssignmentItem interface
+     */
+    private ensureAssignmentItemFormat(items: any[]): AssignmentItem[] {
+        return items.map(item => {
+            // If legacy format, convert
+            if (item.type && item.question_text) {
+                return convertLegacyToAssignmentItem(item as LegacyAssignmentQuestion);
             }
 
-            return '[]';
+            // Ensure options is an object with keys 1-4
+            let options = item.options;
+            if (Array.isArray(options)) {
+                options = {
+                    1: options[0] || '',
+                    2: options[1] || '',
+                    3: options[2] || '',
+                    4: options[3] || '',
+                };
+            } else if (!options) {
+                options = { 1: '', 2: '', 3: '', 4: '' };
+            }
+
+            // Normalize questionType
+            let questionType = item.questionType || item.type || 'mcsc';
+            questionType = questionType.toLowerCase();
+
+            // Handle answer conversion from letters to numbers
+            let mcscAnswer = item.mcscAnswer;
+            let mcmcAnswer = item.mcmcAnswer;
+
+            if (item.correct_option && !mcscAnswer && !mcmcAnswer) {
+                const letterToNum: Record<string, number> = { A: 1, B: 2, C: 3, D: 4 };
+                if (questionType === 'mcsc') {
+                    mcscAnswer = letterToNum[item.correct_option.toUpperCase().trim()] || 1;
+                } else if (questionType === 'mcmc') {
+                    const letters = item.correct_option.split(',').map((l: string) => l.trim().toUpperCase());
+                    mcmcAnswer = letters.map((l: string) => letterToNum[l]).filter(Boolean).join(', ');
+                }
+            }
+
+            return {
+                questionType,
+                contentType: 'markdown' as const,
+                contentBody: item.contentBody || item.question_text || '',
+                options,
+                mcscAnswer: questionType === 'mcsc' ? mcscAnswer : undefined,
+                mcmcAnswer: questionType === 'mcmc' ? mcmcAnswer : undefined,
+                subjectiveAnswer: questionType === 'subjective' ? (item.subjectiveAnswer || item.model_answer) : undefined,
+                difficultyLevel: item.difficultyLevel || 'Medium',
+                answerExplanation: item.answerExplanation || item.explanation || '',
+            } as AssignmentItem;
+        });
+    }
+
+    /**
+     * Convert new format to legacy for validation compatibility
+     */
+    private convertToLegacyForValidation(items: AssignmentItem[]): any[] {
+        return items.map(item => {
+            const numToLetter: Record<number, string> = { 1: 'A', 2: 'B', 3: 'C', 4: 'D' };
+            let correct_option = '';
+
+            if (item.questionType === 'mcsc' && item.mcscAnswer) {
+                correct_option = numToLetter[item.mcscAnswer] || 'A';
+            } else if (item.questionType === 'mcmc' && item.mcmcAnswer) {
+                correct_option = item.mcmcAnswer.split(',')
+                    .map(n => numToLetter[parseInt(n.trim())])
+                    .filter(Boolean)
+                    .join(',');
+            }
+
+            return {
+                type: item.questionType.toUpperCase(),
+                question_text: item.contentBody,
+                options: [item.options[1], item.options[2], item.options[3], item.options[4]],
+                correct_option,
+                explanation: item.answerExplanation,
+                model_answer: item.subjectiveAnswer,
+            };
+        });
+    }
+
+    /**
+     * Attempt to recover from parse errors
+     */
+    private attemptRecovery(text: string): string {
+        try {
+            const questions: any[] = [];
+            const objectMatches = text.matchAll(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g);
+
+            for (const match of objectMatches) {
+                try {
+                    const obj = JSON.parse(match[0]);
+                    if ((obj.questionType || obj.type) && (obj.contentBody || obj.question_text)) {
+                        questions.push(obj);
+                    }
+                } catch {
+                    // Skip malformed objects
+                }
+            }
+
+            if (questions.length > 0) {
+                console.log(`Recovered ${questions.length} questions from partial JSON`);
+                const formatted = this.ensureAssignmentItemFormat(questions);
+                return JSON.stringify(formatted, null, 2);
+            }
+        } catch (recoveryError) {
+            console.error("Recovery also failed", recoveryError);
         }
+
+        return '[]';
     }
 }

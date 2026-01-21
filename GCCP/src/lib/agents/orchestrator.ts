@@ -130,111 +130,146 @@ export class Orchestrator {
       const creatorCost = calculateCost("claude-sonnet-4-5-20250929", inputTokens, outputTokens);
       currentCost += creatorCost;
 
-      // 3. Validator (Combined Fact Check + Quality Check)
-      yield {
-        type: "step",
-        agent: "Validator",
-        action: "Verifying facts and assessing quality...",
-        message: "Validating"
-      };
+      // 3. Iterative Validation Loop (max 3 attempts)
+      const MAX_ATTEMPTS = 3;
+      let attempts = 0;
+      let isValid = false;
 
-      // Cost for Validator
-      const valInput = estimateTokens((useTranscript ? transcript?.slice(0, 50000) : '') + currentContent);
-      const valOutput = 200; // rough estimate for JSON feedback
-      const valCost = calculateCost("claude-haiku-4-5-20251001", valInput, valOutput);
-      currentCost += valCost;
+      while (attempts < MAX_ATTEMPTS && !isValid) {
+        attempts++;
 
-      const validation = await this.validator.validate(currentContent, transcript || null, mode);
-
-      if (!validation.isValid) {
-        // Only run Refiner if needed
-        yield {
-          type: "step",
-          agent: "Refiner",
-          action: `Polishing: ${validation.feedback}`,
-          message: "Polishing Content"
-        };
-
-        let refined = "";
-        // Note context: Reviewer feedback could be passed to Refiner if Refiner supported it. 
-        // For now, RefinerAgent.refineStream takes (content, signal).
-        // We'll rely on Refiner doing its standard job which is usually good enough, 
-        // essentially the Reviewer acts as a boolean gate. 
-
-        // Add clear communication before rewrite
-        yield {
-          type: "step",
-          agent: "Refiner",
-          action: "Applying targeted improvements...",
-          message: "Refining Content"
-        };
-
-        // We do NOT wipe content here anymore (yield { type: "replace", content: "" })
-        // because we are patching, not rewriting entirely.
-
-        const refinerStream = this.refiner.refineStream(currentContent, validation.feedback, signal);
-        let patchOutput = "";
-
-        for await (const chunk of refinerStream) {
-          if (signal?.aborted) throw new Error('Aborted');
-          patchOutput += chunk;
-          // We don't stream chunks blindly to UI because it's search/replace syntax
-          // yield { type: "chunk", content: chunk }; 
-        }
-
-        // Apply Patches
-        let refinedContent = currentContent;
-        const blocks = patchOutput.split('<<<<<<< SEARCH');
-        let appliedCount = 0;
-
-        for (const block of blocks) {
-          if (!block.trim()) continue;
-          const parts = block.split('=======');
-          if (parts.length === 2) {
-            const search = parts[0].trim();
-            const replaceParts = parts[1].split('>>>>>>>');
-            const replace = replaceParts[0].trim();
-
-            if (refinedContent.includes(search)) {
-              refinedContent = refinedContent.replace(search, replace);
-              appliedCount++;
-            }
-          }
-        }
-
-        if (appliedCount > 0) {
-          currentContent = refinedContent;
-          yield { type: "replace", content: currentContent };
-          yield {
-            type: "step",
-            agent: "Refiner",
-            action: `Applied ${appliedCount} fix${appliedCount !== 1 ? 'es' : ''}`,
-            message: "Polished"
-          };
-        } else {
-          // FALLBACK: User safety - if patching fails, keep original
-          console.warn("Refiner ran but no patch blocks were detected in output of length: " + patchOutput.length);
-          yield {
-            type: "step",
-            agent: "Refiner",
-            action: "Formatting mismatch - keeping original draft.",
-            message: "Polishing Skipped"
-          };
-        }
-
-        // Cost for Refiner (use patchOutput since refined was never assigned)
-        const rInput = estimateTokens(currentContent + (validation.feedback || ''));
-        const rOutput = estimateTokens(patchOutput);
-        const rCost = calculateCost("claude-sonnet-4-5-20250929", rInput, rOutput);
-        currentCost += rCost;
-
-      } else {
         yield {
           type: "step",
           agent: "Validator",
-          action: "Content meets standards. Skipping Polish.",
-          message: "Quality Assured"
+          action: `Validation attempt ${attempts}/${MAX_ATTEMPTS}...`,
+          message: "Validating"
         };
+
+        // Cost for Validator
+        const valInput = estimateTokens((useTranscript ? transcript?.slice(0, 50000) : '') + currentContent);
+        const valOutput = 200;
+        const valCost = calculateCost("claude-haiku-4-5-20251001", valInput, valOutput);
+        currentCost += valCost;
+
+        const validation = await this.validator.validate(currentContent, transcript || null, mode);
+
+        if (validation.isValid) {
+          isValid = true;
+          yield {
+            type: "step",
+            agent: "Validator",
+            action: `Content passed validation (score: ${validation.score}/10)`,
+            message: "Quality Assured"
+          };
+          break;
+        }
+
+        // Not valid - decide: regenerate or refine
+        if (validation.score < 7 && attempts < MAX_ATTEMPTS) {
+          // Score too low - regenerate from scratch
+          yield {
+            type: "step",
+            agent: "Creator",
+            action: `Score ${validation.score}/10 too low, regenerating...`,
+            message: "Regenerating"
+          };
+
+          currentContent = "";
+          yield { type: "replace", content: "" };
+
+          const regenStream = this.creator.generateStream(creatorOptions, signal);
+          for await (const chunk of regenStream) {
+            currentContent += chunk;
+            yield { type: "chunk", content: chunk };
+          }
+
+          // Add cost for regeneration
+          const regenInput = estimateTokens(this.creator.formatUserPrompt(creatorOptions));
+          const regenOutput = estimateTokens(currentContent);
+          const regenCost = calculateCost("claude-sonnet-4-5-20250929", regenInput, regenOutput);
+          currentCost += regenCost;
+
+        } else if (attempts < MAX_ATTEMPTS) {
+          // Score moderate - try to refine
+          const feedbackText = String(validation.feedback || 'General polish needed');
+          yield {
+            type: "step",
+            agent: "Refiner",
+            action: `Refining (score: ${validation.score}/10): ${feedbackText.substring(0, 50)}...`,
+            message: "Refining Content"
+          };
+
+          const refinerStream = this.refiner.refineStream(currentContent, feedbackText, signal);
+          let patchOutput = "";
+
+          for await (const chunk of refinerStream) {
+            if (signal?.aborted) throw new Error('Aborted');
+            patchOutput += chunk;
+          }
+
+          // Apply Patches
+          let refinedContent = currentContent;
+          const blocks = patchOutput.split('<<<<<<< SEARCH');
+          let appliedCount = 0;
+
+          for (const block of blocks) {
+            if (!block.trim()) continue;
+            const parts = block.split('=======');
+            if (parts.length === 2) {
+              const search = parts[0].trim();
+              const replaceParts = parts[1].split('>>>>>>>');
+              const replace = replaceParts[0].trim();
+
+              if (refinedContent.includes(search)) {
+                refinedContent = refinedContent.replace(search, replace);
+                appliedCount++;
+              }
+            }
+          }
+
+          if (appliedCount > 0) {
+            currentContent = refinedContent;
+            yield { type: "replace", content: currentContent };
+            yield {
+              type: "step",
+              agent: "Refiner",
+              action: `Applied ${appliedCount} fix${appliedCount !== 1 ? 'es' : ''}`,
+              message: "Refined"
+            };
+          } else {
+            // FALLBACK: If patching fails, use patchOutput as full replacement if it looks like content
+            // Otherwise keep original
+            const hasValidContent = patchOutput.length > 100 && !patchOutput.includes('<<<<<<');
+            if (hasValidContent && mode !== 'assignment') {
+              console.log("Refiner patch failed, using raw output as fallback");
+              currentContent = patchOutput;
+              yield { type: "replace", content: currentContent };
+            } else {
+              console.warn("Refiner patch failed, keeping original");
+              yield {
+                type: "step",
+                agent: "Refiner",
+                action: "Patch mismatch - keeping original",
+                message: "Skipped"
+              };
+            }
+          }
+
+          // Cost for Refiner
+          const rInput = estimateTokens(currentContent + (validation.feedback || ''));
+          const rOutput = estimateTokens(patchOutput);
+          const rCost = calculateCost("claude-sonnet-4-5-20250929", rInput, rOutput);
+          currentCost += rCost;
+
+        } else {
+          // Final attempt failed - proceed with what we have
+          yield {
+            type: "step",
+            agent: "Validator",
+            action: `Final score: ${validation.score}/10 - proceeding with current content`,
+            message: "Max Attempts Reached"
+          };
+        }
       }
 
       // 5. Formatting - If mode is assignment

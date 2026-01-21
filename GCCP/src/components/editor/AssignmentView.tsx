@@ -1,44 +1,91 @@
-import { Download, Table, Eye, FileJson } from 'lucide-react';
-import { useState } from 'react';
+import { Download, Table, Eye } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { 
+    AssignmentItem, 
+    LegacyAssignmentQuestion, 
+    convertLegacyToAssignmentItem,
+    generateCSV 
+} from '@/types/assignment';
+import ReactMarkdown from 'react-markdown';
 
-interface Question {
-    type: string;
-    question_text: string;
-    options?: string[];
-    correct_option?: string;
-    correct_options?: string[]; // for MCMC
-    explanation: string;
-    model_answer?: string;
+interface AssignmentViewProps {
+    jsonContent: string;
 }
 
-export function AssignmentView({ jsonContent }: { jsonContent: string }) {
-    const [view, setView] = useState<'table' | 'student'>('table');
-    let questions: Question[] = [];
+/**
+ * Normalize questions from either legacy or new format to AssignmentItem[]
+ */
+function normalizeQuestions(parsed: any[]): AssignmentItem[] {
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+        return [];
+    }
+    
+    // Detect format by checking first item
+    const first = parsed[0];
+    
+    // New format has 'questionType', legacy has 'type'
+    if (first.questionType) {
+        // Already in new format
+        return parsed as AssignmentItem[];
+    }
+    
+    // Legacy format - convert
+    return (parsed as LegacyAssignmentQuestion[]).map(convertLegacyToAssignmentItem);
+}
 
-    try {
-        questions = JSON.parse(jsonContent);
-    } catch (e) {
-        return <div className="text-red-500 p-4">Error parsing assignment data.</div>;
+/**
+ * Get display answer based on question type
+ */
+function getDisplayAnswer(item: AssignmentItem): string {
+    switch (item.questionType) {
+        case 'mcsc':
+            return item.mcscAnswer ? `Option ${item.mcscAnswer}` : 'N/A';
+        case 'mcmc':
+            return item.mcmcAnswer || 'N/A';
+        case 'subjective':
+            return item.subjectiveAnswer?.substring(0, 50) + '...' || 'N/A';
+        default:
+            return 'N/A';
+    }
+}
+
+/**
+ * Get options as array for display
+ */
+function getOptionsArray(item: AssignmentItem): string[] {
+    return [item.options[1], item.options[2], item.options[3], item.options[4]];
+}
+
+export function AssignmentView({ jsonContent }: AssignmentViewProps) {
+    const [view, setView] = useState<'table' | 'student'>('table');
+    
+    // Parse and normalize questions with memoization
+    const { questions, parseError } = useMemo(() => {
+        try {
+            const parsed = JSON.parse(jsonContent);
+            return { questions: normalizeQuestions(parsed), parseError: null };
+        } catch (e) {
+            return { questions: [], parseError: 'Error parsing assignment data.' };
+        }
+    }, [jsonContent]);
+    
+    if (parseError) {
+        return <div className="text-red-500 p-4">{parseError}</div>;
+    }
+    
+    if (questions.length === 0) {
+        return <div className="text-gray-500 p-4">No questions found.</div>;
     }
 
     const downloadCSV = () => {
-        // Simple CSV construction
-        const headers = ["Type", "Question", "Options", "Correct Answer", "Explanation"];
-        const rows = questions.map(q => [
-            q.type,
-            `"${q.question_text.replace(/"/g, '""')}"`, // Escape quotes
-            `"${(q.options || []).join(' | ')}"`,
-            q.correct_option || (q.correct_options || []).join(', ') || q.model_answer || '',
-            `"${q.explanation.replace(/"/g, '""')}"`
-        ]);
-        
-        const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const csvContent = generateCSV(questions);
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
         a.download = 'assignment.csv';
         a.click();
+        URL.revokeObjectURL(url);
     };
 
     return (
@@ -68,25 +115,39 @@ export function AssignmentView({ jsonContent }: { jsonContent: string }) {
             {/* Content */}
             <div className="flex-1 overflow-y-auto">
                 {view === 'table' ? (
-                    <div className="border rounded-lg overflow-hidden">
-                        <table className="w-full text-sm text-left">
+                    <div className="border rounded-lg overflow-hidden overflow-x-auto">
+                        <table className="w-full text-sm text-left min-w-[800px]">
                             <thead className="bg-gray-50 text-gray-700 font-semibold border-b">
                                 <tr>
-                                    <th className="p-3">Type</th>
+                                    <th className="p-3 w-20">Type</th>
                                     <th className="p-3">Question</th>
-                                    <th className="p-3">Correct</th>
+                                    <th className="p-3 w-32">Option 1</th>
+                                    <th className="p-3 w-32">Option 2</th>
+                                    <th className="p-3 w-32">Option 3</th>
+                                    <th className="p-3 w-32">Option 4</th>
+                                    <th className="p-3 w-24">Answer</th>
                                     <th className="p-3">Explanation</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y">
                                 {questions.map((q, i) => (
                                     <tr key={i} className="hover:bg-gray-50/50">
-                                        <td className="p-3 font-mono text-xs text-gray-500">{q.type}</td>
-                                        <td className="p-3 max-w-xs">{q.question_text}</td>
-                                        <td className="p-3 font-medium text-emerald-600">
-                                            {q.correct_option || (q.correct_options || []).join(', ') || 'N/A'}
+                                        <td className="p-3 font-mono text-xs text-gray-500 uppercase">{q.questionType}</td>
+                                        <td className="p-3 max-w-xs">
+                                            <div className="prose prose-sm max-w-none">
+                                                <ReactMarkdown>{q.contentBody}</ReactMarkdown>
+                                            </div>
                                         </td>
-                                        <td className="p-3 text-gray-500 max-w-xs truncate" title={q.explanation}>{q.explanation}</td>
+                                        <td className="p-3 text-xs text-gray-600">{q.options[1] || '-'}</td>
+                                        <td className="p-3 text-xs text-gray-600">{q.options[2] || '-'}</td>
+                                        <td className="p-3 text-xs text-gray-600">{q.options[3] || '-'}</td>
+                                        <td className="p-3 text-xs text-gray-600">{q.options[4] || '-'}</td>
+                                        <td className="p-3 font-medium text-emerald-600 text-xs">
+                                            {getDisplayAnswer(q)}
+                                        </td>
+                                        <td className="p-3 text-gray-500 max-w-xs text-xs" title={q.answerExplanation}>
+                                            {q.answerExplanation.substring(0, 80)}...
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -94,37 +155,50 @@ export function AssignmentView({ jsonContent }: { jsonContent: string }) {
                     </div>
                 ) : (
                     <div className="space-y-6 max-w-3xl mx-auto">
-                        {questions.map((q, i) => (
-                            <div key={i} className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-                                <div className="flex justify-between mb-4">
-                                    <h3 className="font-semibold text-gray-900">Q{i + 1}. {q.question_text}</h3>
-                                    <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-500 h-fit">{q.type}</span>
-                                </div>
-                                
-                                {q.options && (
-                                    <div className="space-y-2 mb-4">
-                                        {q.options.map((opt, optIdx) => (
-                                            <div key={optIdx} className="flex items-center gap-3 p-2 rounded border border-transparent hover:bg-gray-50 hover:border-gray-200 transition-all">
-                                                <div className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center text-xs text-gray-500">
-                                                    {String.fromCharCode(65 + optIdx)}
-                                                </div>
-                                                <span className="text-sm text-gray-700">{opt}</span>
-                                            </div>
-                                        ))}
+                        {questions.map((q, i) => {
+                            const optionsArr = getOptionsArray(q);
+                            return (
+                                <div key={i} className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                                    <div className="flex justify-between mb-4">
+                                        <div className="font-semibold text-gray-900 prose prose-sm max-w-none">
+                                            <span className="mr-2">Q{i + 1}.</span>
+                                            <ReactMarkdown>{q.contentBody}</ReactMarkdown>
+                                        </div>
+                                        <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-500 h-fit uppercase">
+                                            {q.questionType}
+                                        </span>
                                     </div>
-                                )}
+                                    
+                                    {q.questionType !== 'subjective' && (
+                                        <div className="space-y-2 mb-4">
+                                            {optionsArr.map((opt, optIdx) => (
+                                                <div key={optIdx} className="flex items-center gap-3 p-2 rounded border border-transparent">
+                                                    <div className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center text-xs text-gray-500">
+                                                        {optIdx + 1}
+                                                    </div>
+                                                    <span className="text-sm text-gray-700">{opt || '(empty)'}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
 
-                                <div className="mt-4 pt-4 border-t border-gray-50 bg-blue-50/30 -mx-6 -mb-6 p-4 rounded-b-xl">
-                                    <div className="text-xs font-bold text-blue-700 uppercase tracking-wide mb-1">Answer Key</div>
-                                    <p className="text-sm text-gray-800 font-medium">
-                                        Correct: {q.correct_option || (q.correct_options || []).join(', ') || q.model_answer}
-                                    </p>
-                                    <p className="text-sm text-gray-600 mt-2 italic">
-                                        <span className="font-semibold not-italic">Explanation:</span> {q.explanation}
-                                    </p>
+                                    <div className="mt-4 pt-4 border-t border-gray-50 bg-blue-50/30 -mx-6 -mb-6 p-4 rounded-b-xl">
+                                        <div className="text-xs font-bold text-blue-700 uppercase tracking-wide mb-1">Answer Key</div>
+                                        <p className="text-sm text-gray-800 font-medium">
+                                            Correct: {getDisplayAnswer(q)}
+                                        </p>
+                                        {q.questionType === 'subjective' && q.subjectiveAnswer && (
+                                            <div className="text-sm text-gray-700 mt-2 bg-white p-2 rounded border">
+                                                <span className="font-semibold">Model Answer:</span> {q.subjectiveAnswer}
+                                            </div>
+                                        )}
+                                        <p className="text-sm text-gray-600 mt-2 italic">
+                                            <span className="font-semibold not-italic">Explanation:</span> {q.answerExplanation}
+                                        </p>
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
             </div>

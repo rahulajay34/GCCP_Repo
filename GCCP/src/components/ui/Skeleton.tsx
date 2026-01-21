@@ -1,5 +1,7 @@
 'use client';
 
+import clsx from 'clsx';
+
 interface SkeletonProps {
   className?: string;
   lines?: number;
@@ -10,13 +12,14 @@ interface SkeletonProps {
  */
 export function Skeleton({ className = '', lines = 1 }: SkeletonProps) {
   return (
-    <div className={`animate-pulse ${className}`}>
+    <div className={clsx('space-y-2', className)}>
       {Array.from({ length: lines }).map((_, i) => (
         <div
           key={i}
-          className={`h-4 bg-gray-200 rounded mb-2 ${
+          className={clsx(
+            'skeleton h-4',
             i === lines - 1 ? 'w-3/4' : 'w-full'
-          }`}
+          )}
         />
       ))}
     </div>
@@ -28,12 +31,12 @@ export function Skeleton({ className = '', lines = 1 }: SkeletonProps) {
  */
 export function CardSkeleton({ className = '' }: { className?: string }) {
   return (
-    <div className={`animate-pulse rounded-xl border border-gray-200 p-6 ${className}`}>
-      <div className="h-6 bg-gray-200 rounded w-1/3 mb-4" />
+    <div className={clsx('rounded-2xl border border-gray-200 dark:border-gray-800 p-6 bg-white dark:bg-gray-900', className)}>
+      <div className="skeleton h-6 w-1/3 mb-4" />
       <div className="space-y-3">
-        <div className="h-4 bg-gray-200 rounded w-full" />
-        <div className="h-4 bg-gray-200 rounded w-5/6" />
-        <div className="h-4 bg-gray-200 rounded w-4/6" />
+        <div className="skeleton h-4 w-full" />
+        <div className="skeleton h-4 w-5/6" />
+        <div className="skeleton h-4 w-4/6" />
       </div>
     </div>
   );
@@ -44,15 +47,17 @@ export function CardSkeleton({ className = '' }: { className?: string }) {
  */
 export function EditorSkeleton() {
   return (
-    <div className="animate-pulse h-full p-6 space-y-3">
-      <div className="h-4 bg-gray-200 rounded w-2/3" />
-      <div className="h-4 bg-gray-200 rounded w-full" />
-      <div className="h-4 bg-gray-200 rounded w-5/6" />
-      <div className="h-4 bg-gray-200 rounded w-3/4" />
-      <div className="h-8 bg-gray-100 rounded w-full mt-4" />
-      <div className="h-4 bg-gray-200 rounded w-full" />
-      <div className="h-4 bg-gray-200 rounded w-4/5" />
-      <div className="h-4 bg-gray-200 rounded w-2/3" />
+    <div className="h-full p-6 space-y-4 bg-white dark:bg-gray-900">
+      <div className="skeleton h-4 w-2/3" />
+      <div className="skeleton h-4 w-full" />
+      <div className="skeleton h-4 w-5/6" />
+      <div className="skeleton h-4 w-3/4" />
+      <div className="skeleton h-10 w-full mt-4 rounded-lg" />
+      <div className="skeleton h-4 w-full" />
+      <div className="skeleton h-4 w-4/5" />
+      <div className="skeleton h-4 w-2/3" />
+      <div className="skeleton h-4 w-full" />
+      <div className="skeleton h-4 w-3/4" />
     </div>
   );
 }
@@ -62,36 +67,52 @@ export function EditorSkeleton() {
  */
 export function PreviewSkeleton() {
   return (
-    <div className="animate-pulse p-8 space-y-6">
+    <div className="p-8 space-y-6 bg-gray-50/30 dark:bg-gray-900/50">
       {/* Title */}
-      <div className="h-8 bg-gray-200 rounded w-1/2" />
+      <div className="skeleton h-8 w-1/2" />
       
       {/* Intro paragraph */}
       <div className="space-y-2">
-        <div className="h-4 bg-gray-200 rounded w-full" />
-        <div className="h-4 bg-gray-200 rounded w-5/6" />
-        <div className="h-4 bg-gray-200 rounded w-4/6" />
+        <div className="skeleton h-4 w-full" />
+        <div className="skeleton h-4 w-5/6" />
+        <div className="skeleton h-4 w-4/6" />
       </div>
       
       {/* Section heading */}
-      <div className="h-6 bg-gray-200 rounded w-1/3 mt-6" />
+      <div className="skeleton h-6 w-1/3 mt-6" />
       
       {/* Content */}
       <div className="space-y-2">
-        <div className="h-4 bg-gray-200 rounded w-full" />
-        <div className="h-4 bg-gray-200 rounded w-5/6" />
-        <div className="h-4 bg-gray-200 rounded w-full" />
-        <div className="h-4 bg-gray-200 rounded w-3/4" />
+        <div className="skeleton h-4 w-full" />
+        <div className="skeleton h-4 w-5/6" />
+        <div className="skeleton h-4 w-full" />
+        <div className="skeleton h-4 w-3/4" />
       </div>
       
       {/* Code block */}
-      <div className="h-24 bg-gray-100 rounded-lg" />
+      <div className="skeleton h-24 rounded-lg" />
       
       {/* More content */}
       <div className="space-y-2">
-        <div className="h-4 bg-gray-200 rounded w-full" />
-        <div className="h-4 bg-gray-200 rounded w-2/3" />
+        <div className="skeleton h-4 w-full" />
+        <div className="skeleton h-4 w-2/3" />
       </div>
     </div>
   );
 }
+
+/**
+ * Table row skeleton for AssignmentWorkspace
+ */
+export function TableRowSkeleton() {
+  return (
+    <tr className="border-b border-gray-100 dark:border-gray-800">
+      <td className="p-4"><div className="skeleton h-4 w-8" /></td>
+      <td className="p-4"><div className="skeleton h-4 w-16" /></td>
+      <td className="p-4"><div className="skeleton h-4 w-full" /></td>
+      <td className="p-4"><div className="skeleton h-4 w-24" /></td>
+      <td className="p-4"><div className="skeleton h-4 w-16" /></td>
+    </tr>
+  );
+}
+

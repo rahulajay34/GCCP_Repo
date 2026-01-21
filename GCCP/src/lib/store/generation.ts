@@ -94,6 +94,26 @@ export const useGenerationStore = create<GenerationStore>()(
         logs: state.logs,
         status: (state.status === 'generating' || state.status === 'mismatch') ? 'idle' : state.status // reset stuck generating or mismatch
       }),
+      // Reset stuck agents on store rehydration
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          // Reset any stuck agent states
+          const cleanedProgress: Record<string, any> = {};
+          if (state.agentProgress) {
+            for (const [agent, status] of Object.entries(state.agentProgress)) {
+              // Reset 'working' to 'idle' on reload
+              cleanedProgress[agent] = status === 'working' ? 'idle' : status;
+            }
+          }
+          // Apply the cleaned state
+          useGenerationStore.setState({
+            agentProgress: cleanedProgress,
+            currentAgent: null,
+            currentAction: null,
+          });
+          console.log('[Store] Rehydrated and reset stuck agents');
+        }
+      },
     }
   )
 );

@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { CheckCircle2, Circle, Loader2, ChevronDown, ChevronUp, Clock } from 'lucide-react';
 
 interface Log {
@@ -48,7 +48,7 @@ const formatTime = (seconds: number): string => {
     return `~${mins}m ${secs}s`;
 };
 
-export function GenerationStepper({ logs, status, mode = 'lecture', hasTranscript = false }: StepperProps) {
+export const GenerationStepper = memo(function GenerationStepper({ logs, status, mode = 'lecture', hasTranscript = false }: StepperProps) {
     const [isExpanded, setIsExpanded] = useState(false);
     const [elapsedTime, setElapsedTime] = useState(0);
     const startTimeRef = useRef<number | null>(null);
@@ -98,11 +98,11 @@ export function GenerationStepper({ logs, status, mode = 'lecture', hasTranscrip
     );
 
     return (
-        <div className="mb-4 bg-white p-3 rounded-xl border border-gray-200 shadow-sm animate-in fade-in slide-in-from-top-2">
+        <div className="mb-4 bg-white dark:bg-gray-900 p-3 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm animate-in fade-in slide-in-from-top-2 transition-colors">
             {/* Header with compact view */}
             <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                    <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">
                         Pipeline
                     </h3>
                     {/* Compact View */}
@@ -114,13 +114,13 @@ export function GenerationStepper({ logs, status, mode = 'lecture', hasTranscrip
                             return (
                                 <div key={idx} className="flex items-center gap-1">
                                     {idx > 0 && (
-                                        <div className={`w-6 h-0.5 ${hasCompleted ? 'bg-emerald-400' : 'bg-gray-200'}`} />
+                                        <div className={`w-6 h-0.5 ${hasCompleted ? 'bg-emerald-400' : 'bg-gray-200 dark:bg-gray-700'}`} />
                                     )}
                                     <div className={`
                                         flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium transition-all
-                                        ${isActive ? 'bg-blue-100 text-blue-700 ring-2 ring-blue-200' : 
-                                          hasCompleted ? 'bg-emerald-50 text-emerald-700' : 
-                                          'bg-gray-100 text-gray-400'}
+                                        ${isActive ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 ring-2 ring-blue-200 dark:ring-blue-700' : 
+                                          hasCompleted ? 'bg-emerald-50 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300' : 
+                                          'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500'}
                                     `}>
                                         {isActive ? (
                                             <Loader2 className="w-3 h-3 animate-spin" />
@@ -162,7 +162,7 @@ export function GenerationStepper({ logs, status, mode = 'lecture', hasTranscrip
             )}
             
             {/* Progress bar */}
-            <div className="mt-2 h-1 bg-gray-100 rounded-full overflow-hidden">
+            <div className="mt-2 h-1 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
                 <div 
                     className="h-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-500"
                     style={{ width: `${status === 'complete' ? 100 : progressPercent}%` }}
@@ -197,32 +197,32 @@ export function GenerationStepper({ logs, status, mode = 'lecture', hasTranscrip
                                 </div>
                                 <div className="flex-1">
                                     <p className={`text-sm font-medium ${
-                                        isActive ? 'text-blue-700' : 
-                                        hasCompleted ? 'text-gray-700' : 
+                                        isActive ? 'text-blue-700 dark:text-blue-400' : 
+                                        hasCompleted ? 'text-gray-700 dark:text-gray-300' : 
                                         isSkipped ? 'text-gray-400 line-through' :
-                                        'text-gray-400'
+                                        'text-gray-400 dark:text-gray-600'
                                     }`}>
                                         {stage.id}: {stage.label}
                                     </p>
                                     
                                     {/* Sub-label showing specific action or state */}
                                     {isActive && (
-                                        <p className="text-xs text-blue-500 mt-0.5 animate-pulse">
+                                        <p className="text-xs text-blue-500 dark:text-blue-400 mt-0.5 animate-pulse">
                                             Processing...
                                         </p>
                                     )}
                                     {isPending && (
-                                        <p className="text-xs text-gray-400 mt-0.5">
+                                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
                                             Pending...
                                         </p>
                                     )}
                                     {isSkipped && (
-                                        <p className="text-xs text-gray-400 mt-0.5 italic">
+                                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 italic">
                                             Not needed
                                         </p>
                                     )}
                                     {hasCompleted && !isActive && (
-                                        <p className="text-xs text-emerald-600 mt-0.5">
+                                        <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-0.5">
                                             {/* Show the actual message from the agent if available, else generic complete */}
                                             {agentLog?.action || agentLog?.message || '✓ Complete'}
                                         </p>
@@ -235,11 +235,12 @@ export function GenerationStepper({ logs, status, mode = 'lecture', hasTranscrip
             )}
             
             {status === 'complete' && (
-                <div className="mt-2 flex items-center gap-2 text-emerald-600">
+                <div className="mt-2 flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
                     <CheckCircle2 className="w-4 h-4" />
                     <span className="text-xs font-bold uppercase tracking-wide">All Agents Complete</span>
                 </div>
             )}
         </div>
     );
-}
+});
+
