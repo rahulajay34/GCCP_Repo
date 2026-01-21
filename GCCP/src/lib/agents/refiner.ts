@@ -7,22 +7,38 @@ export class RefinerAgent extends BaseAgent {
     }
 
     getSystemPrompt(): string {
-        return `You are a Content Polisher and Editor. 
-Your goal is to refine educational content to be "Gold Standard".
-1. Improve formatting (use bolding, lists, and clear headers).
-2. Fix any grammar or awkward phrasing.
-3. Ensure the tone is professional yet engaging.
-4. Do NOT remove core information, only improve the presentation.
-5. Return the full polished Markdown.`;
+        return `You are a Precise Text Editor.
+Your goal is to apply specific feedback to refine the content without rewriting everything.
+You output "Search and Replace" blocks to minimize token usage and preserve the rest of the text.`;
     }
 
-    async *refineStream(content: string, signal?: AbortSignal) {
-        const prompt = `Please polish the following draft content:\n\n${content}`;
+    async *refineStream(content: string, feedback: string, signal?: AbortSignal) {
+        const prompt = `You are a targeted text editor.
+        
+Current Content:
+${content}
+
+Feedback/Instructions:
+${feedback}
+
+TASK:
+Apply the feedback by making specific edits. Do NOT rewrite the whole text.
+Use the following strict format for each change:
+
+<<<<<<< SEARCH
+[Exact text to replace]
+=======
+[New improved text]
+>>>>>>>
+
+If no changes are needed for a specific part, do not output it.
+Output multiple blocks if needed.`;
 
         yield* this.client.stream({
             system: this.getSystemPrompt(),
             messages: [{ role: 'user', content: prompt }],
-            model: this.model
-        }); // signal handling is inside client.stream if supported, or handled by orchestrator loop
+            model: this.model,
+            signal
+        });
     }
 }

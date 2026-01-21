@@ -17,6 +17,7 @@ interface GenerationStore extends GenerationState {
   setFormattedContent: (content: string) => void;
   setGapAnalysis: (result: any) => void;
   addLog: (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
+  addStepLog: (agent: string, message: string) => void;
 
   reset: () => void;
   assignmentCounts: { mcsc: number; mcmc: number; subjective: number };
@@ -57,6 +58,9 @@ export const useGenerationStore = create<GenerationStore>()(
       addLog: (message, type: 'info' | 'success' | 'warning' | 'error' = 'info') => set((state) => ({
         logs: [...(state.logs || []), { message, type, timestamp: Date.now() }]
       })),
+      addStepLog: (agent, message) => set((state) => ({
+        logs: [...(state.logs || []), { type: 'step', agent, message, timestamp: Date.now() }]
+      })),
       reset: () => set({
         topic: '', subtopics: '', status: 'idle', finalContent: '', formattedContent: '', currentAgent: null, currentAction: null, gapAnalysis: null, transcript: '', logs: []
       })
@@ -73,7 +77,7 @@ export const useGenerationStore = create<GenerationStore>()(
         formattedContent: state.formattedContent,
         gapAnalysis: state.gapAnalysis,
         logs: state.logs,
-        status: state.status === 'generating' ? 'idle' : state.status // reset stuck generating
+        status: (state.status === 'generating' || state.status === 'mismatch') ? 'idle' : state.status // reset stuck generating or mismatch
       }),
     }
   )

@@ -6,6 +6,7 @@ export interface GapAnalysisResult {
   covered: string[];
   notCovered: string[];
   partiallyCovered: string[];
+  transcriptTopics: string[]; // Topics mentioned in the transcript
   timestamp: string;
 }
 
@@ -24,7 +25,8 @@ export interface GenerationParams {
 
 export interface GenerationLog {
   message: string;
-  type: 'info' | 'success' | 'warning' | 'error';
+  type: 'info' | 'success' | 'warning' | 'error' | 'step';
+  agent?: string;
   timestamp: number;
 }
 
@@ -33,7 +35,7 @@ export interface GenerationState {
   topic: string;
   subtopics: string;
   mode: ContentMode;
-  status: "idle" | "generating" | "complete" | "error";
+  status: "idle" | "generating" | "complete" | "error" | "mismatch";
   currentAgent: string | null;
   currentAction: string | null;
   agentProgress: Record<string, AgentStatus>;

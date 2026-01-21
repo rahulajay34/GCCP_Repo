@@ -2,6 +2,9 @@
 import { useState, useEffect } from 'react';
 import { Download, Table, Eye, Plus, Trash } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
+import rehypeHighlight from 'rehype-highlight';
 
 interface Question {
     type: string;
@@ -18,16 +21,19 @@ interface AssignmentWorkspaceProps {
 }
 
 export function AssignmentWorkspace({ jsonContent, onUpdate }: AssignmentWorkspaceProps) {
-    const [view, setView] = useState<'table' | 'student'>('table');
+    const [view, setView] = useState<'table' | 'reference'>('table');
     const [questions, setQuestions] = useState<Question[]>([]);
 
     useEffect(() => {
         try {
             if (jsonContent) {
-                // Handle potential incomplete JSON from streaming or string wrapping
                 const parsed = JSON.parse(jsonContent);
                 if (Array.isArray(parsed)) {
-                    setQuestions(parsed);
+                    // Prevent infinite loops/unnecessary re-renders
+                    setQuestions(prev => {
+                        if (JSON.stringify(prev) === JSON.stringify(parsed)) return prev;
+                        return parsed;
+                    });
                 }
             }
         } catch (e) {
@@ -40,14 +46,52 @@ export function AssignmentWorkspace({ jsonContent, onUpdate }: AssignmentWorkspa
         onUpdate(JSON.stringify(updatedQuestions, null, 2));
     };
 
+    // Convert letter (A,B,C,D) to number (1,2,3,4)
+    const letterToNumber = (letter: string | undefined): string => {
+        if (!letter) return '';
+        const upper = letter.toUpperCase().trim();
+        if (/^[1-4]$/.test(upper)) return upper;
+        if (upper.includes(',')) {
+            return upper.split(',').map(l => {
+                const trimmed = l.trim().toUpperCase();
+                if (/^[1-4]$/.test(trimmed)) return trimmed;
+                const code = trimmed.charCodeAt(0);
+                if (code >= 65 && code <= 68) return String(code - 64);
+                return trimmed;
+            }).join(',');
+        }
+        const code = upper.charCodeAt(0);
+        if (code >= 65 && code <= 68) return String(code - 64);
+        return letter;
+    };
+
+    // Convert number (1,2,3,4) back to letter (A,B,C,D) for storage
+    const numberToLetter = (num: string): string => {
+        if (!num) return '';
+        if (num.includes(',')) {
+            return num.split(',').map(n => {
+                const trimmed = n.trim();
+                const val = parseInt(trimmed);
+                if (val >= 1 && val <= 4) return String.fromCharCode(64 + val);
+                return trimmed;
+            }).join(',');
+        }
+        const val = parseInt(num);
+        if (val >= 1 && val <= 4) return String.fromCharCode(64 + val);
+        return num;
+    };
+
     const downloadCSV = () => {
-        const headers = ["Type", "Question", "Options", "Correct Answer", "Explanation"];
+        const headers = ["Question Type", "Question", "Option 1", "Option 2", "Option 3", "Option 4", "Correct Answer", "Answer Explanation"];
         const rows = questions.map(q => [
             q.type,
             `"${(q.question_text || '').replace(/"/g, '""')}"`,
-            `"${(q.options || []).join(' | ')}"`,
-            q.correct_option || '',
-            `"${(q.explanation || '').replace(/"/g, '""')}"`
+            `"${(q.options?.[0] || '').replace(/"/g, '""')}"`,
+            `"${(q.options?.[1] || '').replace(/"/g, '""')}"`,
+            `"${(q.options?.[2] || '').replace(/"/g, '""')}"`,
+            `"${(q.options?.[3] || '').replace(/"/g, '""')}"`,
+            letterToNumber(q.correct_option),
+            `"${(q.explanation || q.model_answer || '').replace(/"/g, '""')}"`
         ]);
         const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
         const blob = new Blob([csv], { type: 'text/csv' });
@@ -56,6 +100,20 @@ export function AssignmentWorkspace({ jsonContent, onUpdate }: AssignmentWorkspa
         a.href = url;
         a.download = 'assignment.csv';
         a.click();
+    };
+
+    const getOption = (options: string[] | undefined, index: number): string => {
+        return options?.[index] || '';
+    };
+
+    const setOption = (idx: number, optIdx: number, value: string) => {
+        const newQ = [...questions];
+        if (!newQ[idx].options) newQ[idx].options = ['', '', '', ''];
+        while (newQ[idx].options!.length < 4) {
+            newQ[idx].options!.push('');
+        }
+        newQ[idx].options![optIdx] = value;
+        handleUpdate(newQ);
     };
 
     return (
@@ -70,10 +128,10 @@ export function AssignmentWorkspace({ jsonContent, onUpdate }: AssignmentWorkspa
                         <Table size={14} /> Editor
                     </button>
                     <button 
-                        onClick={() => setView('student')}
-                        className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${view === 'student' ? 'bg-white shadow-sm text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}
+                        onClick={() => setView('reference')}
+                        className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${view === 'reference' ? 'bg-white shadow-sm text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}
                     >
-                        <Eye size={14} /> Student View
+                        <Eye size={14} /> Reference View
                     </button>
                 </div>
                 <button 
@@ -85,28 +143,29 @@ export function AssignmentWorkspace({ jsonContent, onUpdate }: AssignmentWorkspa
             </div>
 
             {/* Content Area */}
-            <div className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
+            <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
                 {view === 'table' ? (
-                    <div className="overflow-x-auto border border-gray-200 rounded-xl shadow-sm bg-white">
-                        <table className="w-full text-left border-collapse min-w-[1000px]">
-                            <thead>
-                                <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wider">
-                                    <th className="p-3 w-10 text-center">#</th>
-                                    <th className="p-3 w-24">Type</th>
-                                    <th className="p-3 min-w-[300px]">Question</th>
-                                    <th className="p-3 w-48">Options / Model Answer</th>
-                                    <th className="p-3 w-24">Correct</th>
-                                    <th className="p-3 min-w-[200px]">Explanation</th>
-                                    <th className="p-3 w-10"></th>
+                    <div className="overflow-x-auto">
+                        {/* Excel-like 8-column table */}
+                        <table className="w-full text-left border-collapse min-w-[1200px]">
+                            <thead className="sticky top-0 z-10">
+                                <tr className="bg-gray-100 border-b-2 border-gray-300 text-xs text-gray-700 font-bold uppercase tracking-wider">
+                                    <th className="p-2 border-r border-gray-300 w-24 bg-gray-100">Question Type</th>
+                                    <th className="p-2 border-r border-gray-300 min-w-[300px] bg-gray-100">Question (Markdown)</th>
+                                    <th className="p-2 border-r border-gray-300 w-32 bg-gray-100">Option 1</th>
+                                    <th className="p-2 border-r border-gray-300 w-32 bg-gray-100">Option 2</th>
+                                    <th className="p-2 border-r border-gray-300 w-32 bg-gray-100">Option 3</th>
+                                    <th className="p-2 border-r border-gray-300 w-32 bg-gray-100">Option 4</th>
+                                    <th className="p-2 border-r border-gray-300 w-20 bg-gray-100">Correct</th>
+                                    <th className="p-2 min-w-[250px] bg-gray-100">Explanation (Markdown)</th>
+                                    <th className="p-2 w-10 bg-gray-100"></th>
                                 </tr>
                             </thead>
-                            <tbody className="text-sm divide-y divide-gray-100">
+                            <tbody className="text-sm divide-y divide-gray-200">
                                 {questions.map((q, idx) => (
-                                    <tr key={idx} className="group hover:bg-blue-50/30 transition-colors">
-                                        <td className="p-3 text-center align-top font-mono text-xs text-gray-400 pt-5">{idx + 1}</td>
-                                        
+                                    <tr key={idx} className="hover:bg-blue-50/30 border-b border-gray-200">
                                         {/* TYPE */}
-                                        <td className="p-3 align-top">
+                                        <td className="p-2 border-r border-gray-200 align-top">
                                             <select 
                                                 value={q.type}
                                                 onChange={(e) => {
@@ -114,17 +173,16 @@ export function AssignmentWorkspace({ jsonContent, onUpdate }: AssignmentWorkspa
                                                     newQ[idx] = { ...newQ[idx], type: e.target.value };
                                                     handleUpdate(newQ);
                                                 }}
-                                                className="w-full text-xs p-1.5 border border-gray-200 rounded-md bg-white focus:border-blue-300 outline-none"
+                                                className="w-full text-xs p-1.5 border border-gray-300 rounded bg-white focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none"
                                             >
                                                 <option value="MCSC">MCSC</option>
                                                 <option value="MCMC">MCMC</option>
                                                 <option value="Subjective">Subjective</option>
-                                                <option value="TrueFalse">True/False</option>
                                             </select>
                                         </td>
 
-                                        {/* QUESTION TEXT */}
-                                        <td className="p-3 align-top">
+                                        {/* QUESTION TEXT - Raw Markdown Editor */}
+                                        <td className="p-2 border-r border-gray-200 align-top">
                                             <textarea 
                                                 value={q.question_text}
                                                 onChange={(e) => {
@@ -132,90 +190,65 @@ export function AssignmentWorkspace({ jsonContent, onUpdate }: AssignmentWorkspa
                                                     newQ[idx] = { ...newQ[idx], question_text: e.target.value };
                                                     handleUpdate(newQ);
                                                 }}
-                                                className="w-full p-2 text-sm border border-transparent hover:border-gray-200 focus:border-blue-300 rounded-md bg-transparent focus:bg-white outline-none resize-none transition-all min-h-[80px]"
-                                                placeholder="Question text..."
+                                                className="w-full p-2 text-xs border border-gray-300 rounded bg-gray-50 focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none resize-none min-h-[100px] font-mono whitespace-pre-wrap"
+                                                placeholder="Write markdown here...&#10;&#10;Example:&#10;What is the output?&#10;```python&#10;print('hello')&#10;```"
                                             />
                                         </td>
 
-                                        {/* OPTIONS or MODEL ANSWER */}
-                                        <td className="p-3 align-top">
-                                            {q.type === 'Subjective' ? (
-                                                <textarea 
-                                                    value={q.model_answer || ''}
+                                        {/* OPTIONS 1-4 */}
+                                        {[0, 1, 2, 3].map(optIdx => (
+                                            <td key={optIdx} className="p-2 border-r border-gray-200 align-top">
+                                                {q.type === 'Subjective' ? (
+                                                    <span className="text-xs text-gray-400 italic">N/A</span>
+                                                ) : (
+                                                    <textarea
+                                                        value={getOption(q.options, optIdx)}
+                                                        onChange={(e) => setOption(idx, optIdx, e.target.value)}
+                                                        className="w-full p-1.5 text-xs border border-gray-300 rounded bg-white focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none resize-none min-h-[50px]"
+                                                        placeholder={`Option ${optIdx + 1}`}
+                                                    />
+                                                )}
+                                            </td>
+                                        ))}
+
+                                        {/* CORRECT ANSWER - Number */}
+                                        <td className="p-2 border-r border-gray-200 align-top">
+                                            {q.type !== 'Subjective' ? (
+                                                <input 
+                                                    value={letterToNumber(q.correct_option)}
                                                     onChange={(e) => {
                                                         const newQ = [...questions];
-                                                        newQ[idx] = { ...newQ[idx], model_answer: e.target.value };
+                                                        newQ[idx] = { ...newQ[idx], correct_option: numberToLetter(e.target.value) };
                                                         handleUpdate(newQ);
                                                     }}
-                                                    className="w-full p-2 text-xs border border-transparent hover:border-gray-200 focus:border-blue-300 rounded-md bg-blue-50/50 focus:bg-white text-blue-900 outline-none resize-none transition-all min-h-[80px]"
-                                                    placeholder="Model answer..."
+                                                    className="w-full text-center font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-300 rounded p-1.5 text-sm outline-none focus:ring-2 focus:ring-emerald-200"
+                                                    placeholder={q.type === 'MCMC' ? '1,2' : '1'}
                                                 />
                                             ) : (
-                                                <div className="space-y-1">
-                                                    {(q.options || []).map((opt, oIdx) => (
-                                                        <div key={oIdx} className="flex gap-1 items-center">
-                                                            <span className="text-[10px] w-4 text-gray-400 text-center font-mono">{String.fromCharCode(65+oIdx)}</span>
-                                                            <input 
-                                                                value={opt}
-                                                                onChange={(e) => {
-                                                                    const newQ = [...questions];
-                                                                    if (!newQ[idx].options) newQ[idx].options = [];
-                                                                    newQ[idx].options![oIdx] = e.target.value;
-                                                                    handleUpdate(newQ);
-                                                                }}
-                                                                className="flex-1 p-1 text-xs border border-transparent hover:border-gray-200 focus:border-blue-300 rounded bg-transparent focus:bg-white outline-none"
-                                                            />
-                                                        </div>
-                                                    ))}
-                                                    <button 
-                                                       onClick={() => {
-                                                            const newQ = [...questions];
-                                                            if (!newQ[idx].options) newQ[idx].options = [];
-                                                            if (newQ[idx].options!.length < 6) {
-                                                                newQ[idx].options!.push(`Option ${newQ[idx].options!.length + 1}`);
-                                                                handleUpdate(newQ);
-                                                            }
-                                                       }}
-                                                       className="text-[10px] text-blue-500 hover:text-blue-700 font-medium ml-5"
-                                                    >
-                                                        + Add Option
-                                                    </button>
-                                                </div>
+                                                <span className="text-xs text-gray-400 italic">N/A</span>
                                             )}
                                         </td>
 
-                                        {/* CORRECT ANSWER */}
-                                        <td className="p-3 align-top">
-                                             {q.type !== 'Subjective' && (
-                                                <input 
-                                                    value={q.correct_option || ''}
-                                                    onChange={(e) => {
-                                                        const newQ = [...questions];
-                                                        newQ[idx] = { ...newQ[idx], correct_option: e.target.value };
-                                                        handleUpdate(newQ);
-                                                    }}
-                                                    className="w-full text-center font-mono font-bold text-emerald-700 bg-emerald-50/50 border border-emerald-100 rounded p-1.5 text-xs outline-none focus:ring-2 focus:ring-emerald-200"
-                                                    placeholder="A"
-                                                />
-                                             )}
-                                        </td>
-
-                                        {/* EXPLANATION */}
-                                        <td className="p-3 align-top">
+                                        {/* EXPLANATION - Raw Markdown Editor */}
+                                        <td className="p-2 align-top">
                                             <textarea 
-                                                value={q.explanation}
+                                                value={q.type === 'Subjective' ? (q.model_answer || q.explanation) : q.explanation}
                                                 onChange={(e) => {
                                                     const newQ = [...questions];
-                                                    newQ[idx] = { ...newQ[idx], explanation: e.target.value };
+                                                    if (q.type === 'Subjective') {
+                                                        newQ[idx] = { ...newQ[idx], model_answer: e.target.value, explanation: e.target.value };
+                                                    } else {
+                                                        newQ[idx] = { ...newQ[idx], explanation: e.target.value };
+                                                    }
                                                     handleUpdate(newQ);
                                                 }}
-                                                className="w-full p-2 text-xs text-gray-600 border border-transparent hover:border-gray-200 focus:border-blue-300 rounded-md bg-transparent focus:bg-white outline-none resize-none transition-all min-h-[80px]"
-                                                placeholder="Explanation..."
+                                                className="w-full p-2 text-xs border border-gray-300 rounded bg-gray-50 focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none resize-none min-h-[100px] font-mono whitespace-pre-wrap"
+                                                placeholder="Write markdown explanation..."
                                             />
                                         </td>
 
-                                         {/* ACTIONS */}
-                                         <td className="p-3 align-top pt-4">
+                                        {/* ACTIONS */}
+                                        <td className="p-2 align-top">
                                             <button 
                                                 onClick={() => {
                                                     const newQ = questions.filter((_, i) => i !== idx);
@@ -226,7 +259,7 @@ export function AssignmentWorkspace({ jsonContent, onUpdate }: AssignmentWorkspa
                                             >
                                                 <Trash size={14} />
                                             </button>
-                                         </td>
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -238,7 +271,7 @@ export function AssignmentWorkspace({ jsonContent, onUpdate }: AssignmentWorkspa
                                     const newQ = [...questions, {
                                         type: 'MCSC',
                                         question_text: '',
-                                        options: ['Option 1', 'Option 2', 'Option 3', 'Option 4'],
+                                        options: ['', '', '', ''],
                                         correct_option: '',
                                         explanation: ''
                                     }];
@@ -251,54 +284,111 @@ export function AssignmentWorkspace({ jsonContent, onUpdate }: AssignmentWorkspa
                         </div>
                     </div>
                 ) : (
-                    <div className="max-w-3xl mx-auto space-y-8 animate-in fade-in duration-500">
-                        <div className="text-center border-b pb-6 mb-6">
-                            <h1 className="text-2xl font-bold text-gray-900">Assignment</h1>
-                            <p className="text-gray-500 mt-2">Please answer all questions.</p>
+                    /* Reference View - Properly Formatted with Syntax Highlighting */
+                    <div className="max-w-4xl mx-auto p-8 space-y-8 animate-in fade-in duration-500">
+                        <div className="text-center border-b-2 border-gray-200 pb-6 mb-8">
+                            <h1 className="text-2xl font-bold text-gray-900">Assignment Reference</h1>
+                            <p className="text-gray-500 mt-2">This shows how questions will appear after formatting.</p>
                         </div>
+                        
                         {questions.map((q, i) => (
-                            <div key={i} className="space-y-3 group">
-                                <div className="font-medium text-gray-800 text-lg">
-                                    <span className="font-bold mr-2 text-blue-600">Q{i+1}.</span> 
-                                    <div className="prose prose-sm inline-block align-top max-w-none">
-                                        <ReactMarkdown>{q.question_text}</ReactMarkdown>
-                                    </div>
+                            <div key={i} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                                {/* Question Header */}
+                                <div className="bg-gray-50 px-6 py-3 border-b border-gray-200 flex items-center gap-3">
+                                    <span className="flex items-center justify-center w-8 h-8 bg-blue-600 text-white rounded-full text-sm font-bold">
+                                        {i + 1}
+                                    </span>
+                                    <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
+                                        q.type === 'MCSC' ? 'bg-blue-100 text-blue-700' :
+                                        q.type === 'MCMC' ? 'bg-purple-100 text-purple-700' :
+                                        'bg-amber-100 text-amber-700'
+                                    }`}>
+                                        {q.type}
+                                    </span>
                                 </div>
-                                {q.options && q.options.length > 0 && (
-                                    <div className="pl-4 space-y-2">
-                                        {q.options.map((opt, o) => (
-                                            <div key={o} className="flex items-center gap-3">
-                                                <div className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center text-xs text-gray-500 group-hover:border-blue-300 transition-colors">
-                                                    {String.fromCharCode(65+o)}
-                                                </div>
-                                                <span className="text-gray-600">{opt}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                                {q.type === 'Subjective' && (
-                                     <div className="pl-4 mt-2 mb-4">
-                                        <div className="p-4 bg-blue-50 rounded-lg text-sm text-blue-900 border border-blue-100">
-                                            <span className="font-semibold block mb-1">Model Answer:</span>
-                                            <ReactMarkdown>{q.model_answer || ''}</ReactMarkdown>
-                                        </div>
-                                     </div>
-                                )}
                                 
-                                <div className="mt-4 p-4 bg-gray-50 rounded-lg text-sm text-gray-600 border border-gray-100 shadow-sm print:break-inside-avoid">
-                                    <div className="flex gap-2 mb-2">
-                                        <span className="font-semibold text-gray-800">Answer:</span> 
-                                        <span className="text-emerald-600 font-mono font-bold">{q.correct_option}</span>
+                                {/* Question Content */}
+                                <div className="p-6">
+                                    {/* Question Text with Markdown & Syntax Highlighting */}
+                                    <div className="prose prose-sm max-w-none text-gray-800 mb-4 prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-code:text-pink-600 prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
+                                        <ReactMarkdown 
+                                            remarkPlugins={[remarkGfm, remarkBreaks]}
+                                            rehypePlugins={[rehypeHighlight]}
+                                        >
+                                            {q.question_text}
+                                        </ReactMarkdown>
                                     </div>
-                                    <div>
-                                        <span className="font-semibold text-gray-800 block mb-1">Explanation:</span> 
-                                        <div className="prose prose-sm max-w-none text-gray-600">
-                                            <ReactMarkdown>{q.explanation}</ReactMarkdown>
+                                    
+                                    {/* Options for MCQ */}
+                                    {q.options && q.options.length > 0 && q.type !== 'Subjective' && (
+                                        <div className="space-y-2 mb-6">
+                                            {q.options.map((opt, o) => {
+                                                const isCorrect = q.correct_option?.toUpperCase().includes(String.fromCharCode(65 + o)) ||
+                                                                  q.correct_option?.includes(String(o + 1));
+                                                return (
+                                                    <div 
+                                                        key={o} 
+                                                        className={`flex items-start gap-3 p-3 rounded-lg border ${
+                                                            isCorrect 
+                                                                ? 'bg-emerald-50 border-emerald-200' 
+                                                                : 'bg-gray-50 border-gray-200'
+                                                        }`}
+                                                    >
+                                                        <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                                                            isCorrect 
+                                                                ? 'bg-emerald-500 text-white' 
+                                                                : 'bg-gray-200 text-gray-600'
+                                                        }`}>
+                                                            {o + 1}
+                                                        </div>
+                                                        <span className={`text-sm ${isCorrect ? 'text-emerald-800 font-medium' : 'text-gray-700'}`}>
+                                                            {opt}
+                                                        </span>
+                                                        {isCorrect && (
+                                                            <span className="ml-auto text-xs font-semibold text-emerald-600">✓ Correct</span>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                    
+                                    {/* Model Answer for Subjective */}
+                                    {q.type === 'Subjective' && q.model_answer && (
+                                        <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                                            <h4 className="text-sm font-bold text-blue-800 mb-2">Model Answer:</h4>
+                                            <div className="prose prose-sm max-w-none text-blue-900 prose-pre:bg-gray-900 prose-pre:text-gray-100">
+                                                <ReactMarkdown 
+                                                    remarkPlugins={[remarkGfm, remarkBreaks]}
+                                                    rehypePlugins={[rehypeHighlight]}
+                                                >
+                                                    {q.model_answer}
+                                                </ReactMarkdown>
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {/* Explanation */}
+                                    <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+                                        <h4 className="text-sm font-bold text-amber-800 mb-2">Explanation:</h4>
+                                        <div className="prose prose-sm max-w-none text-amber-900 prose-pre:bg-gray-900 prose-pre:text-gray-100">
+                                            <ReactMarkdown 
+                                                remarkPlugins={[remarkGfm, remarkBreaks]}
+                                                rehypePlugins={[rehypeHighlight]}
+                                            >
+                                                {q.explanation || q.model_answer || ''}
+                                            </ReactMarkdown>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         ))}
+                        
+                        {questions.length === 0 && (
+                            <div className="text-center py-12 text-gray-400">
+                                <p>No questions to display.</p>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

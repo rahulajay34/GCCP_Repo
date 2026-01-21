@@ -1,6 +1,15 @@
 import { BaseAgent } from "./base-agent";
 import { CREATOR_SYSTEM_PROMPTS, getCreatorUserPrompt } from "@/prompts/creator";
-import { ContentMode } from "@/types/content";
+import { ContentMode, GapAnalysisResult } from "@/types/content";
+
+export interface CreatorOptions {
+  topic: string;
+  subtopics: string;
+  mode: ContentMode;
+  transcript?: string;
+  gapAnalysis?: GapAnalysisResult;
+  assignmentCounts?: any;
+}
 
 export class CreatorAgent extends BaseAgent {
   constructor(client: any, model: string = "claude-sonnet-4-5-20250929") {
@@ -11,13 +20,13 @@ export class CreatorAgent extends BaseAgent {
     return CREATOR_SYSTEM_PROMPTS[mode] || CREATOR_SYSTEM_PROMPTS["lecture"];
   }
 
-  formatUserPrompt(topic: string, subtopics: string, mode: ContentMode, prerequisites?: string, assignmentCounts?: any): string {
-    return getCreatorUserPrompt(topic, subtopics, mode, prerequisites, assignmentCounts);
+  formatUserPrompt(options: CreatorOptions): string {
+    return getCreatorUserPrompt(options);
   }
 
-  async *generateStream(topic: string, subtopics: string, mode: ContentMode, prerequisites?: string, assignmentCounts?: any, signal?: AbortSignal) {
-    const system = this.getSystemPrompt(mode);
-    const user = this.formatUserPrompt(topic, subtopics, mode, prerequisites, assignmentCounts);
+  async *generateStream(options: CreatorOptions, signal?: AbortSignal) {
+    const system = this.getSystemPrompt(options.mode);
+    const user = this.formatUserPrompt(options);
 
     yield* this.client.stream({
       system,

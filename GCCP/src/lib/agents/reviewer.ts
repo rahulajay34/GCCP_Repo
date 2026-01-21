@@ -1,5 +1,6 @@
 import { BaseAgent } from "./base-agent";
 import { AnthropicClient } from "@/lib/anthropic/client";
+import { parseLLMJson } from "./utils/json-parser";
 
 export class ReviewerAgent extends BaseAgent {
     constructor(client: AnthropicClient) {
@@ -22,7 +23,7 @@ export class ReviewerAgent extends BaseAgent {
         If Quality > 8, return status "PASS".
         If Quality <= 8, return status "POLISH" and a bulleted list of 3 specific improvements needed.
         
-        Output format JSON: { "status": "PASS" | "POLISH", "feedback": "..." }`;
+        Output format JSON: { "status": "PASS" | "POLISH", "feedback": "Specific instructions for the editor (e.g., 'Section 2 is wordy', 'Use more active voice in intro')" }`;
 
         const response = await this.client.generate({
             system: this.getSystemPrompt(),
@@ -32,18 +33,11 @@ export class ReviewerAgent extends BaseAgent {
 
         const text = response.content.find(b => b.type === 'text')?.text || "{}";
         try {
-            // Clean up potentially messy JSON markdown
-            const jsonText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-
-            // Try to find the first JSON object if there's extra text
-            const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-            const cleanJson = jsonMatch ? jsonMatch[0] : jsonText;
-
-            const result = JSON.parse(cleanJson);
+            const result = await parseLLMJson<any>(text, {});
 
             return {
                 needsPolish: result.status === "POLISH",
-                feedback: result.feedback
+                feedback: result.feedback || "Polish content for better clarity."
             };
         } catch (e) {
             console.error("Reviewer JSON parse error", e);

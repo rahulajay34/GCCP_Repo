@@ -1,4 +1,13 @@
-import { ContentMode } from "@/types/content";
+import { ContentMode, GapAnalysisResult } from "@/types/content";
+
+export interface CreatorPromptOptions {
+  topic: string;
+  subtopics: string;
+  mode: ContentMode;
+  transcript?: string;
+  gapAnalysis?: GapAnalysisResult;
+  assignmentCounts?: { mcsc: number; mcmc: number; subjective: number };
+}
 
 export const CREATOR_SYSTEM_PROMPTS = {
   lecture: `You are an expert educator creating comprehensive lecture notes for students who have completed pre-reading. Your writing builds mastery through clear explanations, practical examples, and careful progression from simple to complex.
@@ -23,21 +32,90 @@ Length target: Comprehensive coverage while staying focused (approximately 1600-
   - Establishing basic vocabulary
   - Connecting to real-world problems`,
 
-  assignment: `You are an expert assessment creator. Create clear, unambiguous questions that test understanding, application, and analysis.`,
+  assignment: `You are an expert assessment creator specializing in creating clear, unambiguous, high-quality questions. 
+
+Your PRIMARY DIRECTIVE is to create EXACTLY the number of questions specified for each type. This is non-negotiable.
+
+Quality Standards:
+- Every question must be crystal clear with no ambiguity
+- Options must be distinct and plausible (no trick answers)
+- Correct answers must be definitively correct
+- Explanations must teach the concept, not just state the answer
+- Use markdown formatting in question text and explanations where helpful
+
+Self-Verification Checklist (apply to each question):
+1. Is the question clear and unambiguous?
+2. Are all options plausible but only the correct one(s) definitively right?
+3. Does the explanation teach WHY the answer is correct?
+4. Is the difficulty level appropriate (Medium)?`,
+};
+
+// Helper to format transcript section for prompts
+const formatTranscriptSection = (transcript: string, gapAnalysis?: GapAnalysisResult): string => {
+  let section = `
+═══════════════════════════════════════════════════════════════
+📝 TRANSCRIPT PROVIDED - PRIORITIZE THIS CONTENT
+═══════════════════════════════════════════════════════════════
+
+You have been given a lecture/session transcript. This is your PRIMARY SOURCE.
+
+**CRITICAL INSTRUCTIONS:**
+1. Extract key explanations, examples, and insights DIRECTLY from the transcript
+2. Use the instructor's specific examples, analogies, and teaching style
+3. Preserve important quotes and demonstrations from the transcript
+4. Only supplement with additional context when the transcript lacks coverage
+5. DO NOT make up examples that aren't in the transcript—use what was actually taught
+
+`;
+
+  if (gapAnalysis) {
+    if (gapAnalysis.covered.length > 0) {
+      section += `**FULLY COVERED in transcript (use transcript content):**
+${gapAnalysis.covered.map(s => `- ✅ ${s}`).join('\n')}
+
+`;
+    }
+    if (gapAnalysis.partiallyCovered.length > 0) {
+      section += `**PARTIALLY COVERED (supplement with basics):**
+${gapAnalysis.partiallyCovered.map(s => `- ⚠️ ${s}`).join('\n')}
+
+`;
+    }
+    if (gapAnalysis.notCovered.length > 0) {
+      section += `**NOT COVERED (you may add foundational content):**
+${gapAnalysis.notCovered.map(s => `- ❌ ${s}`).join('\n')}
+
+`;
+    }
+  }
+
+  section += `═══════════════════════════════════════════════════════════════
+TRANSCRIPT CONTENT:
+═══════════════════════════════════════════════════════════════
+
+${transcript.slice(0, 80000)}
+${transcript.length > 80000 ? '\n... [transcript truncated for length]' : ''}
+
+═══════════════════════════════════════════════════════════════
+
+`;
+  return section;
 };
 
 export const getCreatorUserPrompt = (
-  topic: string,
-  subtopics: string,
-  mode: ContentMode,
-  assignmentCounts: { mcsc: number; mcmc: number; subjective: number } = { mcsc: 5, mcmc: 3, subjective: 2 }
+  options: CreatorPromptOptions
 ) => {
-  if (mode === "lecture") {
-    return `Topic: ${topic}
-Key Concepts: ${subtopics}
-Prerequisites: ${prerequisites}
-Student Context: They've completed pre-reading on this topic
+  const { topic, subtopics, mode, transcript, gapAnalysis, assignmentCounts = { mcsc: 5, mcmc: 3, subjective: 2 } } = options;
 
+  if (mode === "lecture") {
+    const transcriptSection = transcript ? formatTranscriptSection(transcript, gapAnalysis) : '';
+
+    return `${transcriptSection}Topic: ${topic}
+Key Concepts: ${subtopics}
+Student Context: They've completed pre-reading on this topic
+${transcript ? `
+**SOURCE PRIORITY**: Your PRIMARY source is the transcript above. Extract explanations, examples, and key points directly from what was taught. Only add supplementary content for subtopics not covered in the transcript.
+` : ''}
 Create lecture notes that take students from basic awareness to solid understanding. Structure naturally following this flow:
 
 ## What You'll Learn
@@ -102,10 +180,13 @@ Critical instructions:
   }
 
   if (mode === "pre-read") {
-    return `Topic: ${topic}
-Key Concepts: ${subtopics}
-Prerequisites: ${prerequisites}
+    const transcriptSection = transcript ? formatTranscriptSection(transcript, gapAnalysis) : '';
 
+    return `${transcriptSection}Topic: ${topic}
+Key Concepts: ${subtopics}
+${transcript ? `
+**SOURCE PRIORITY**: Your PRIMARY source is the transcript above. Extract key concepts, vocabulary, and foundational ideas directly from what was taught. Only add supplementary content for subtopics not covered in the transcript.
+` : ''}
 Create pre-read content that introduces this topic to complete beginners. Structure your response naturally following this flow:
 
 ## What You'll Learn
@@ -178,49 +259,74 @@ Important: Write naturally. Never mention the word "analogy" explicitly. Never r
     const total = mcsc + mcmc + subjective;
     return `Topic: ${topic}
 Key Concepts: ${subtopics}
-Question Type: Mixed (MCSC, MCMC, Subjective)
 Difficulty: Medium
-Number of Questions: ${total} (MCSC: ${mcsc}, MCMC: ${mcmc}, Subjective: ${subjective})
 
-Create ${total} mixed questions at Medium difficulty level for this topic.
+═══════════════════════════════════════════════════════════════
+⚠️  CRITICAL REQUIREMENT - EXACT QUESTION COUNTS ⚠️
+═══════════════════════════════════════════════════════════════
 
-Requests:
-- ${mcsc} Multiple Choice Single Correct (MCSC)
-- ${mcmc} Multiple Choice Multiple Correct (MCMC)
-- ${subjective} Subjective (Open-ended)
+You MUST create EXACTLY these quantities (no more, no less):
+• MCSC (Multiple Choice Single Correct): ${mcsc} questions
+• MCMC (Multiple Choice Multiple Correct): ${mcmc} questions  
+• Subjective (Open-ended): ${subjective} questions
+
+TOTAL: ${total} questions
+
+FAILURE TO MATCH THESE EXACT COUNTS IS UNACCEPTABLE.
+
+═══════════════════════════════════════════════════════════════
+
+**Format Requirements:**
 
 For MCSC questions:
 - Write clear, specific question text
 - Provide exactly 4 plausible options
-- Ensure only one is definitively correct
+- Ensure only ONE is definitively correct
+- Use "correct_option": "A" (or B, C, D) for the single correct answer
 - Write explanations that teach why the correct answer works and why others don't
 
 For MCMC questions:
-- Write clear question text that indicates multiple correct answers
+- Write clear question text (include phrase like "Select all that apply" or indicate multiple answers)
 - Provide exactly 4 options
 - Ensure 2-3 are correct
-- Explain why each correct answer is right
+- Use "correct_option": "A,C" format (comma-separated letters for multiple correct)
+- Explain why EACH correct answer is right
 
 For Subjective questions:
-- Write open-ended questions that require explanation or demonstration
-- **model_answer**: Provide the direct, "correct" answer or key points a student should write.
-- **explanation**: Provide the detailed, complete answer to the question.
+- Write open-ended questions requiring explanation or demonstration
+- **model_answer**: The ideal answer a student should provide
+- **explanation**: Detailed explanation and key points to cover
 
-Critical: Question text should be direct and clear. Never include meta-language.
+**MARKDOWN FORMATTING FOR CODE:**
+When including code in question_text or explanation, you MUST use proper markdown code blocks:
+- Use TRIPLE BACKTICKS with language identifier, like: \`\`\`python ... \`\`\`
+- NEVER write code inline without proper code block formatting
+- Inside JSON strings, escape newlines as \\n
+- Example of properly formatted question_text with code:
+  "What will be the output of the following **nested loop** code?\\n\\n\`\`\`python\\nfor i in range(1, 4):\\n    for j in range(i):\\n        print(i, end=' ')\\n    print()\\n\`\`\`"
 
-**CRITICAL OUTPUT RULE:** The content inside the JSON fields(like \`explanation\`, \`question_text\`) must be **final, student-facing content only**. Do NOT include internal notes.
+**Quality Checklist (verify each question):**
+✓ Question is unambiguous - only one interpretation possible
+✓ Options are plausible - no obviously wrong "filler" options
+✓ Correct answer is definitively correct - no debate possible
+✓ Explanation teaches the concept - not just "A is correct because A is right"
+✓ Code blocks use triple backticks with language identifier
 
-**FORMATTING RULES**:
-1. Use **Markdown** for formatting within fields.
-2. Output **ONLY** a valid JSON list of objects.
-3. Wrap the JSON in a code block like \`\`\`json ... \`\`\`.
+**CRITICAL OUTPUT RULES:**
+1. Output ONLY a valid JSON array wrapped in a \`\`\`json code block
+2. All content must be final, student-facing - NO internal notes or meta-commentary
+3. Use **Markdown** formatting within question_text and explanation fields
+4. Escape newlines as \\n in JSON strings
 
 \`\`\`json
 [
-  { "type": "MCSC", "question_text": "...", "options": ["A", "B", "C", "D"], "correct_option": "A", "explanation": "..." },
+  { "type": "MCSC", "question_text": "What is the output?\\n\\n\`\`\`python\\nprint('Hello')\\n\`\`\`", "options": ["Hello", "hello", "Error", "None"], "correct_option": "A", "explanation": "The print() function outputs exactly what is in quotes." },
+  { "type": "MCMC", "question_text": "Which are valid? (Select all)", "options": ["...", "...", "...", "..."], "correct_option": "A,C", "explanation": "..." },
   { "type": "Subjective", "question_text": "...", "model_answer": "...", "explanation": "..." }
 ]
-\`\`\``;
+\`\`\`
+
+REMINDER: Create EXACTLY ${mcsc} MCSC, ${mcmc} MCMC, and ${subjective} Subjective questions.`;
   }
   return `Create content for ${topic} covering ${subtopics}.`;
 };

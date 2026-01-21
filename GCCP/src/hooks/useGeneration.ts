@@ -74,7 +74,8 @@ export const useGeneration = () => {
                 if (event.type === 'step') {
                     store.setCurrentAgent(event.agent || 'System');
                     store.setCurrentAction(event.action || event.message || '');
-                    store.addLog(event.message || '', 'info');
+                    // Add log with agent info for stepper tracking
+                    store.addStepLog(event.agent || 'System', event.message || '');
                 } else if (event.type === 'chunk') {
                     store.updateContent(event.content as string || '');
                 } else if (event.type === 'gap_analysis') {
@@ -110,6 +111,12 @@ export const useGeneration = () => {
                         console.error("Failed to save generation", err);
                     }
 
+                } else if (event.type === 'mismatch_stop') {
+                    // Transcript mismatch detected - stop and let user decide
+                    store.setStatus('mismatch');
+                    store.addLog(event.message as string || 'Transcript mismatch detected', 'warning');
+                    setError(event.message as string || 'Transcript does not match topic/subtopics');
+                    // Don't continue processing - generator will return after this
                 } else if (event.type === 'error') {
                     // console.error(event.message);
                     store.addLog(event.message || 'Error occurred', 'error');

@@ -32,8 +32,11 @@ export class Orchestrator {
     const { topic, subtopics, mode, additionalInstructions, transcript, assignmentCounts } = params;
     let currentCost = 0;
     let currentContent = "";
+    let gapAnalysisResult: { covered: string[]; notCovered: string[]; partiallyCovered: string[]; transcriptTopics: string[]; timestamp: string } | null = null;
 
     // 1. Transcript Analysis (Optional)
+    let useTranscript = !!transcript; // Track if we should use the transcript
+
     if (transcript && subtopics) {
       yield {
         type: "step",
@@ -44,6 +47,7 @@ export class Orchestrator {
 
       try {
         const analysis = await this.analyzer.analyze(subtopics, transcript, signal);
+        gapAnalysisResult = analysis; // Store for passing to creator
         // Calculate rough cost for analysis
         const inputTok = estimateTokens(this.analyzer.formatUserPrompt(subtopics, transcript));
         const outputTok = estimateTokens(JSON.stringify(analysis));
@@ -54,6 +58,30 @@ export class Orchestrator {
           type: "gap_analysis",
           content: analysis
         };
+
+        // EARLY MISMATCH DETECTION: If NO subtopics are covered at all, the transcript is irrelevant
+        const totalSubtopics = analysis.covered.length + analysis.notCovered.length + analysis.partiallyCovered.length;
+        const coveredCount = analysis.covered.length + analysis.partiallyCovered.length;
+
+        if (totalSubtopics > 0 && coveredCount === 0) {
+          // Transcript is completely irrelevant - STOP and let user decide
+          yield {
+            type: "step",
+            agent: "Analyzer",
+            action: "⚠️ Transcript doesn't match topic - stopping for user decision",
+            message: "Mismatch Detected"
+          };
+
+          // Yield a special mismatch_stop event and return early
+          yield {
+            type: "mismatch_stop",
+            message: "The transcript appears unrelated to the topic/subtopics. None of the subtopics were found in the transcript.",
+            cost: currentCost
+          };
+
+          // Stop generation here - user must decide what to do
+          return;
+        }
       } catch (err) {
         if (signal?.aborted) throw err;
         console.error("Analysis failed", err);
@@ -61,16 +89,25 @@ export class Orchestrator {
       }
     }
 
-    // 2. Creator Phase
+    // 2. Creator Phase - Now with transcript and gap analysis
     yield {
       type: "step",
       agent: "Creator",
-      action: "Drafting initial content...",
+      action: useTranscript ? "Drafting content from transcript..." : "Drafting initial content...",
       message: "Writing Draft"
     };
 
     try {
-      const stream = this.creator.generateStream(topic, subtopics, mode, additionalInstructions, assignmentCounts, signal);
+      const creatorOptions = {
+        topic,
+        subtopics,
+        mode,
+        transcript: useTranscript ? transcript : undefined, // Only pass transcript if it's relevant
+        gapAnalysis: useTranscript ? (gapAnalysisResult || undefined) : undefined,
+        assignmentCounts
+      };
+
+      const stream = this.creator.generateStream(creatorOptions, signal);
 
       for await (const chunk of stream) {
         currentContent += chunk;
@@ -81,13 +118,13 @@ export class Orchestrator {
       }
 
       // Calculate costs for Creator
-      const inputTokens = estimateTokens(this.creator.formatUserPrompt(topic, subtopics, mode));
+      const inputTokens = estimateTokens(this.creator.formatUserPrompt(creatorOptions));
       const outputTokens = estimateTokens(currentContent);
       const creatorCost = calculateCost("claude-sonnet-4-5-20250929", inputTokens, outputTokens);
       currentCost += creatorCost;
 
-      // 3. Strictness Check (Sanitizer) - ONLY if transcript exists
-      if (transcript) {
+      // 3. Strictness Check (Sanitizer) - ONLY if transcript exists AND is relevant
+      if (useTranscript && transcript) {
         yield {
           type: "step",
           agent: "Sanitizer",
@@ -143,16 +180,64 @@ export class Orchestrator {
         // We'll rely on Refiner doing its standard job which is usually good enough, 
         // essentially the Reviewer acts as a boolean gate. 
 
-        yield { type: "replace", content: "" };
+        // Add clear communication before rewrite
+        yield {
+          type: "step",
+          agent: "Refiner",
+          action: "Applying targeted improvements...",
+          message: "Refining Content"
+        };
 
-        const refinerStream = this.refiner.refineStream(currentContent, signal);
+        // We do NOT wipe content here anymore (yield { type: "replace", content: "" })
+        // because we are patching, not rewriting entirely.
+
+        const refinerStream = this.refiner.refineStream(currentContent, review.feedback, signal);
+        let patchOutput = "";
 
         for await (const chunk of refinerStream) {
           if (signal?.aborted) throw new Error('Aborted');
-          refined += chunk;
-          yield { type: "chunk", content: chunk };
+          patchOutput += chunk;
+          // We don't stream chunks blindly to UI because it's search/replace syntax
+          // yield { type: "chunk", content: chunk }; 
         }
-        currentContent = refined;
+
+        // Apply Patches
+        let refinedContent = currentContent;
+        const blocks = patchOutput.split('<<<<<<< SEARCH');
+        let appliedCount = 0;
+
+        for (const block of blocks) {
+          if (!block.trim()) continue;
+          const parts = block.split('=======');
+          if (parts.length === 2) {
+            const search = parts[0].trim();
+            const replaceParts = parts[1].split('>>>>>>>');
+            const replace = replaceParts[0].trim();
+
+            if (refinedContent.includes(search)) {
+              refinedContent = refinedContent.replace(search, replace);
+              appliedCount++;
+            }
+          }
+        }
+
+        if (appliedCount > 0) {
+          currentContent = refinedContent;
+          yield { type: "replace", content: currentContent };
+          yield {
+            type: "step",
+            agent: "Refiner",
+            action: `Applied ${appliedCount} fix${appliedCount !== 1 ? 'es' : ''}`,
+            message: "Polished"
+          };
+        } else {
+          yield {
+            type: "step",
+            agent: "Refiner",
+            action: "No specific text matches found for fixes.",
+            message: "Polishing Skipped"
+          };
+        }
 
         // Cost for Refiner
         const rInput = estimateTokens(params.topic + currentContent); // currentContent was pre-refinement

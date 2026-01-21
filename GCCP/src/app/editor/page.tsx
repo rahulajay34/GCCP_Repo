@@ -1,6 +1,7 @@
 'use client';
 
 import { useGeneration } from '@/hooks/useGeneration';
+import { useGenerationStore } from '@/lib/store/generation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -14,7 +15,8 @@ import { Mermaid } from '@/components/ui/Mermaid';
 import { GapAnalysisPanel } from '@/components/editor/GapAnalysis';
 import { ContentMode } from '@/types/content';
 import { GenerationStepper } from '@/components/editor/GenerationStepper';
-import { AssignmentWorkspace } from '@/components/editor/AssignmentWorkspace'; // NEW
+import { AssignmentWorkspace } from '@/components/editor/AssignmentWorkspace';
+import Editor from '@monaco-editor/react';
 
 export default function EditorPage() {
   const { 
@@ -73,30 +75,29 @@ export default function EditorPage() {
   // Use hook's transcript (from store)
   const { transcript } = useGeneration(); 
 
-  // 1. Add this ref for auto-scrolling
+  // 1. Add this ref for auto-scrolling (within preview panel only)
   const bottomRef = useRef<HTMLDivElement>(null);
 
-      // Auto-scroll logic with "stick to bottom" behavior
-      useEffect(() => {
-          if (status === 'generating' && bottomRef.current) {
-              const parent = bottomRef.current.parentElement;
-              if (parent) {
-                  const { scrollTop, scrollHeight, clientHeight } = parent;
-                  // Only auto-scroll if user is already near the bottom (within 150px)
-                  const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
-                  
-                  if (isNearBottom) {
-                      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
-                  }
-              }
-          }
-      }, [finalContent, status]);
+      // Auto-scroll within preview panel only - NOT the whole page
+      // This effect is now disabled to let users scroll freely
+      // useEffect(() => {
+      //     if (status === 'generating' && bottomRef.current) {
+      //         const parent = bottomRef.current.parentElement;
+      //         if (parent) {
+      //             const { scrollTop, scrollHeight, clientHeight } = parent;
+      //             const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
+      //             if (isNearBottom) {
+      //                 bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+      //             }
+      //         }
+      //     }
+      // }, [finalContent, status]);
 
 
 
   return (
-    <div className="h-[calc(100vh-6rem)] flex flex-col max-w-7xl mx-auto w-full overflow-hidden">
-      <div className="flex-shrink-0 flex justify-between items-start mb-6 gap-6">
+    <div className="flex flex-col max-w-6xl mx-auto w-full pb-8">
+      <div className="flex-shrink-0 flex justify-between items-start mb-3 gap-4">
         {/* ... INPUTS ... */}
         <div className="flex-1 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -131,41 +132,41 @@ export default function EditorPage() {
                 </div>
 
                 {mode === 'assignment' && (
-                  <div className="flex gap-2 items-center w-full animate-in fade-in slide-in-from-top-1">
-                      <div className="text-xs font-medium text-gray-500 mr-1">Counts:</div>
-                      <div className="flex items-center gap-2">
-                          <div className="relative">
+                  <div className="flex gap-4 items-center w-full animate-in fade-in slide-in-from-top-1 bg-blue-50/50 p-3 rounded-lg border border-blue-100">
+                      <div className="text-sm font-semibold text-blue-700">Question Counts:</div>
+                      <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-2">
+                            <label className="text-xs font-medium text-gray-600">MCSC</label>
                             <input 
                               type="number" 
                               min="0"
+                              max="20"
                               value={assignmentCounts?.mcsc || 0}
                               onChange={(e) => setAssignmentCounts({...assignmentCounts, mcsc: parseInt(e.target.value) || 0})}
-                              className="w-16 pl-2 pr-1 py-1 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none"
-                              placeholder="MCSC"
+                              className="w-16 px-3 py-2 text-sm font-bold text-center border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
                             />
-                            <span className="absolute right-1 top-1 text-[10px] text-gray-400 pointer-events-none">MCSC</span>
                           </div>
-                          <div className="relative">
+                          <div className="flex items-center gap-2">
+                            <label className="text-xs font-medium text-gray-600">MCMC</label>
                             <input 
                                 type="number" 
                                 min="0"
+                                max="20"
                                 value={assignmentCounts?.mcmc || 0}
                                 onChange={(e) => setAssignmentCounts({...assignmentCounts, mcmc: parseInt(e.target.value) || 0})}
-                                className="w-16 pl-2 pr-1 py-1 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none"
-                                placeholder="MCMC"
+                                className="w-16 px-3 py-2 text-sm font-bold text-center border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
                               />
-                            <span className="absolute right-1 top-1 text-[10px] text-gray-400 pointer-events-none">MCMC</span>
                           </div>
-                          <div className="relative">
+                          <div className="flex items-center gap-2">
+                              <label className="text-xs font-medium text-gray-600">Subjective</label>
                               <input 
                                 type="number" 
                                 min="0"
+                                max="20"
                                 value={assignmentCounts?.subjective || 0}
                                 onChange={(e) => setAssignmentCounts({...assignmentCounts, subjective: parseInt(e.target.value) || 0})}
-                                className="w-16 pl-2 pr-1 py-1 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none"
-                                placeholder="Subj"
+                                className="w-16 px-3 py-2 text-sm font-bold text-center border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
                               />
-                              <span className="absolute right-1 top-1 text-[10px] text-gray-400 pointer-events-none">Subj</span>
                           </div>
                       </div>
                   </div>
@@ -236,12 +237,12 @@ export default function EditorPage() {
       </div>
 
       {(showTranscript || transcript) && (
-          <div className="flex-shrink-0 mb-6 animate-in fade-in slide-in-from-top-2">
+          <div className="flex-shrink-0 mb-3 animate-in fade-in slide-in-from-top-2">
               <textarea
                   value={transcript}
                   onChange={(e) => hookSetTranscript(e.target.value)}
                   placeholder="Paste lecture transcript here for analysis and context..."
-                  className="w-full h-32 p-4 rounded-xl border border-gray-200 bg-gray-50/50 text-sm font-mono focus:ring-2 focus:ring-indigo-100 focus:bg-white outline-none resize-y transition-all"
+                  className="w-full h-24 p-3 rounded-xl border border-gray-200 bg-gray-50/50 text-sm font-mono focus:ring-2 focus:ring-indigo-100 focus:bg-white outline-none resize-y transition-all"
               />
           </div>
       )}
@@ -259,7 +260,12 @@ export default function EditorPage() {
       {/* Progress Stepper & Logs */}
       {status !== 'idle' && (
           <div className="flex-shrink-0">
-            <GenerationStepper logs={logs || []} status={status} />
+            <GenerationStepper 
+              logs={logs || []} 
+              status={status} 
+              mode={mode}
+              hasTranscript={!!transcript}
+            />
           </div>
       )}
 
@@ -269,7 +275,45 @@ export default function EditorPage() {
         </div>
       )}
 
-      {error && (
+      {/* MISMATCH STOP - User Decision Required */}
+      {status === 'mismatch' && (
+          <div className="flex-shrink-0 mb-4 p-5 bg-amber-50 border border-amber-200 rounded-xl animate-in fade-in slide-in-from-top-2">
+              <div className="flex items-start gap-3 mb-4">
+                  <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
+                      <span className="text-xl">⚠️</span>
+                  </div>
+                  <div>
+                      <h3 className="font-semibold text-amber-800 text-sm mb-1">Transcript Mismatch Detected</h3>
+                      <p className="text-amber-700 text-sm">
+                          The transcript appears unrelated to your topic/subtopics. None of the subtopics were found in the transcript.
+                      </p>
+                  </div>
+              </div>
+              <div className="flex gap-3 ml-13">
+                  <button 
+                      onClick={() => {
+                          // Clear transcript and regenerate
+                          hookSetTranscript('');
+                          startGeneration();
+                      }}
+                      className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                      Generate Without Transcript
+                  </button>
+                  <button 
+                      onClick={() => {
+                          // Reset to idle so user can fix inputs
+                          useGenerationStore.getState().setStatus('idle');
+                      }}
+                      className="px-4 py-2 text-sm font-medium bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                      Fix Topic/Transcript
+                  </button>
+              </div>
+          </div>
+      )}
+
+      {error && status !== 'mismatch' && (
           <div className="flex-shrink-0 mb-4 p-4 bg-red-50 text-red-700 rounded-xl border border-red-100 flex items-center gap-2 text-sm">
               <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
               Error: {error}
@@ -278,20 +322,57 @@ export default function EditorPage() {
 
       {/* MAIN CONTENT AREA */}
       {mode === 'assignment' ? (
-            <div className="flex-1 min-h-0">
-                <AssignmentWorkspace 
-                    jsonContent={formattedContent || '[]'} 
-                    onUpdate={setFormattedContent}
-                />
+            /* For assignment mode: Show AssignmentWorkspace or loading state */
+            <div className="h-[700px]">
+                {formattedContent && formattedContent.length > 5 ? (
+                    <AssignmentWorkspace 
+                        jsonContent={formattedContent || '[]'} 
+                        onUpdate={setFormattedContent}
+                    />
+                ) : status === 'generating' ? (
+                    <div className="h-full flex flex-col items-center justify-center bg-white rounded-2xl border border-gray-200 p-8">
+                        <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+                        <h3 className="text-lg font-semibold text-gray-700 mb-2">Generating Assignment</h3>
+                        <p className="text-sm text-gray-500 text-center max-w-md">
+                            Creating {(assignmentCounts?.mcsc || 0) + (assignmentCounts?.mcmc || 0) + (assignmentCounts?.subjective || 0)} questions...
+                        </p>
+                        {currentAgent && (
+                            <div className="mt-4 px-4 py-2 bg-blue-50 rounded-lg text-sm text-blue-700">
+                                <span className="font-semibold">{currentAgent}</span>: {currentAction || 'Processing...'}
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    <div className="h-full flex flex-col items-center justify-center bg-white rounded-2xl border border-gray-200 p-8 text-gray-400">
+                        <FileText size={48} className="mb-4 opacity-50" />
+                        <p className="text-sm">Enter a topic and click Generate to create an assignment.</p>
+                    </div>
+                )}
             </div>
       ) : (
-          <div className="flex-1 grid grid-cols-2 gap-6 min-h-0">
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col overflow-hidden relative">
+          /* For lecture/pre-read mode: Show editor and preview panels */
+          <div className="grid grid-cols-2 gap-6 h-[777px]">
+            <div className={`bg-white rounded-2xl border shadow-sm flex flex-col overflow-hidden relative transition-all duration-500 ${
+              currentAgent === 'Sanitizer' ? 'border-orange-300 ring-4 ring-orange-50/50 shadow-orange-100' :
+              currentAgent === 'Refiner' ? 'border-purple-300 ring-4 ring-purple-50/50 shadow-purple-100' :
+              'border-gray-200'
+            }`}>
               <div className="flex-shrink-0 px-4 py-2 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
                 <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />
                     Editor (Markdown)
                 </span>
+                {/* Live Agent Status Indicators */}
+                {currentAgent === 'Sanitizer' && (
+                  <span className="text-xs font-bold text-orange-600 animate-pulse flex items-center gap-1">
+                    🔍 Checking Facts...
+                  </span>
+                )}
+                {currentAgent === 'Refiner' && (
+                  <span className="text-xs font-bold text-purple-600 animate-pulse flex items-center gap-1">
+                    ✨ Polishing...
+                  </span>
+                )}
                 <button 
                     onClick={handleDownloadMarkdown}
                     className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-200/50 rounded transition-colors"
@@ -300,22 +381,24 @@ export default function EditorPage() {
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto relative p-0 group">
-                 <textarea 
+                 <Editor
+                    height="100%"
+                    defaultLanguage="markdown"
                     value={finalContent || ''}
-                    onChange={(e) => setContent(e.target.value)}
-                    className="w-full h-full resize-none bg-transparent outline-none font-mono text-sm p-6 leading-relaxed text-gray-800"
-                    placeholder="// Generated content will stream here..."
-                 ></textarea>
-                     
-                 {/* Overlay for Sanitizer Phase - Optional overlap with Status Bar but good for focus */}
-                 {logs && logs.length > 0 && logs[logs.length-1].message.includes('Sanitizer') && (
-                   <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10">
-                       <div className="flex flex-col items-center gap-2 text-blue-600">
-                           <Loader2 className="animate-spin w-8 h-8" />
-                           <span className="font-semibold">Sanitizer is auditing content...</span>
-                       </div>
-                   </div>
-                )}
+                    onChange={(value) => setContent(value || '')}
+                    theme="light"
+                    loading={<div className="flex items-center justify-center h-full"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>}
+                    options={{
+                        minimap: { enabled: false },
+                        fontSize: 14,
+                        wordWrap: 'on',
+                        scrollBeyondLastLine: false,
+                        padding: { top: 24, bottom: 24 },
+                        lineNumbers: 'off',
+                        renderLineHighlight: 'none',
+                        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace"
+                    }}
+                 />
               </div>
             </div>
 
