@@ -42,6 +42,10 @@ export function AssignmentWorkspace({ jsonContent, onUpdate }: AssignmentWorkspa
     }, [jsonContent]);
 
     const handleUpdate = (updatedQuestions: Question[]) => {
+        // Semantic check to prevent redundant updates/loops
+        if (JSON.stringify(updatedQuestions) === JSON.stringify(questions)) {
+            return;
+        }
         setQuestions(updatedQuestions);
         onUpdate(JSON.stringify(updatedQuestions, null, 2));
     };
@@ -82,24 +86,49 @@ export function AssignmentWorkspace({ jsonContent, onUpdate }: AssignmentWorkspa
     };
 
     const downloadCSV = () => {
-        const headers = ["Question Type", "Question", "Option 1", "Option 2", "Option 3", "Option 4", "Correct Answer", "Answer Explanation"];
-        const rows = questions.map(q => [
-            q.type,
-            `"${(q.question_text || '').replace(/"/g, '""')}"`,
-            `"${(q.options?.[0] || '').replace(/"/g, '""')}"`,
-            `"${(q.options?.[1] || '').replace(/"/g, '""')}"`,
-            `"${(q.options?.[2] || '').replace(/"/g, '""')}"`,
-            `"${(q.options?.[3] || '').replace(/"/g, '""')}"`,
-            letterToNumber(q.correct_option),
-            `"${(q.explanation || q.model_answer || '').replace(/"/g, '""')}"`
-        ]);
-        const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+        // Strict Template Headers
+        const headers = [
+            "questionType,contentType,contentBody,intAnswer,prepTime(in_seconds),floatAnswer.max,floatAnswer.min,fitbAnswer,mcscAnswer,subjectiveAnswer,option.1,option.2,option.3,option.4,mcmcAnswer,tagRelationships,difficultyLevel,answerExplanation"
+        ];
+
+        const rows = questions.map(q => {
+            // Helper to get option text safely and escape quotes for CSV
+            const opt = (i: number) => (q.options?.[i] || '').replace(/"/g, '""');
+            
+            // Map Type
+            const typeMap: Record<string, string> = { 'MCSC': 'mcsc', 'MCMC': 'mcmc', 'Subjective': 'subjective' };
+            const qType = typeMap[q.type] || q.type.toLowerCase();
+
+            // Map Answers
+            const correctRaw = letterToNumber(q.correct_option); // e.g., "1" or "1,2"
+            
+            // Specific Logic per type
+            const mcscAnswer = qType === 'mcsc' ? correctRaw : "";
+            const mcmcAnswer = qType === 'mcmc' ? `"${correctRaw}"` : ""; // Quote if comma separated? Usually safe in CSV to quote
+            const subjectiveAnswer = qType === 'subjective' ? `"${(q.model_answer||'').replace(/"/g, '""')}"` : "";
+
+            return [
+                qType,                                      // questionType (mcsc, mcmc, subjective)
+                "markdown",                                 // contentType (hardcoded)
+                `"${(q.question_text||'').replace(/"/g, '""')}"`, // contentBody
+                "", "", "", "", "",                         // int, prep, float(max/min), fitb (empty)
+                mcscAnswer,                                 // mcscAnswer
+                subjectiveAnswer,                           // subjectiveAnswer
+                `"${opt(0)}"`, `"${opt(1)}"`, `"${opt(2)}"`, `"${opt(3)}"`, // option.1 - option.4
+                mcmcAnswer,                                 // mcmcAnswer
+                "", "Medium",                               // tagRelationships, difficultyLevel
+                `"${(q.explanation||'').replace(/"/g, '""')}"` // answerExplanation
+            ].join(',');
+        });
+
+        const csv = [headers.join('\n'), ...rows].join('\n');
         const blob = new Blob([csv], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
         a.download = 'assignment.csv';
         a.click();
+        URL.revokeObjectURL(url);
     };
 
     const getOption = (options: string[] | undefined, index: number): string => {
@@ -190,7 +219,7 @@ export function AssignmentWorkspace({ jsonContent, onUpdate }: AssignmentWorkspa
                                                     newQ[idx] = { ...newQ[idx], question_text: e.target.value };
                                                     handleUpdate(newQ);
                                                 }}
-                                                className="w-full p-2 text-xs border border-gray-300 rounded bg-gray-50 focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none resize-none min-h-[100px] font-mono whitespace-pre-wrap"
+                                                className="w-full p-2 text-xs border border-gray-300 rounded bg-gray-50 focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none resize-none min-h-[100px] font-mono whitespace-pre-wrap leading-relaxed"
                                                 placeholder="Write markdown here...&#10;&#10;Example:&#10;What is the output?&#10;```python&#10;print('hello')&#10;```"
                                             />
                                         </td>
@@ -310,7 +339,9 @@ export function AssignmentWorkspace({ jsonContent, onUpdate }: AssignmentWorkspa
                                 {/* Question Content */}
                                 <div className="p-6">
                                     {/* Question Text with Markdown & Syntax Highlighting */}
-                                    <div className="prose prose-sm max-w-none text-gray-800 mb-4 prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-code:text-pink-600 prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
+                                    <div className="prose prose-sm max-w-none text-gray-800 mb-4 
+                                        prose-pre:bg-gray-900 prose-pre:text-gray-50 prose-pre:p-4 prose-pre:rounded-lg prose-pre:overflow-x-auto
+                                        prose-code:text-pink-600 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none">
                                         <ReactMarkdown 
                                             remarkPlugins={[remarkGfm, remarkBreaks]}
                                             rehypePlugins={[rehypeHighlight]}

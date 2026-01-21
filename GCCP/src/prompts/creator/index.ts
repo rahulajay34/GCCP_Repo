@@ -40,6 +40,7 @@ NEVER write phrases like:
 Write as if YOU are the expert teaching directly to the student.
 No meta-references to sources, materials, or the generation process.
 Teach the content, don't describe teaching it.
+Do not use phrases like "In this lecture" or "As an AI".
 
 ═══════════════════════════════════════════════════════════════
 
@@ -96,6 +97,7 @@ NEVER include phrases like:
 
 Questions and explanations must be STANDALONE and student-facing.
 No references to source materials or generation process.
+Do not include "Hint" or "Note" sections unless they are part of the explanation.
 ═══════════════════════════════════════════════════════════════`,
 };
 
@@ -133,6 +135,8 @@ ${gapAnalysis.partiallyCovered.map(s => `- ⚠️ ${s}`).join('\n')}
     if (gapAnalysis.notCovered.length > 0) {
       section += `**NOT COVERED (you may add foundational content):**
 ${gapAnalysis.notCovered.map(s => `- ❌ ${s}`).join('\n')}
+
+CRITICAL INSTRUCTION: Since there are topics NOT COVERED in the transcript, you MUST add a final section titled "Further Exploration". In this section, briefly introduce these concepts as advanced/related topics that students should research, without stating "this was missing from the transcript". Just present them as natural extensions.
 
 `;
     }
@@ -361,11 +365,12 @@ For Subjective questions:
 - **model_answer**: The ideal answer a student should provide
 - **explanation**: Detailed explanation and key points to cover
 
-**MARKDOWN FORMATTING FOR CODE:**
+**MARKDOWN FORMATTING FOR CODE (CRITICAL):**
 When including code in question_text or explanation, you MUST use proper markdown code blocks:
 - Use TRIPLE BACKTICKS with language identifier, like: \`\`\`python ... \`\`\`
 - NEVER write code inline without proper code block formatting
 - Inside JSON strings, escape newlines as \\n
+- **IMPORTANT**: The backticks MUST be present in the final string value.
 - Example of properly formatted question_text with code:
   "What will be the output of the following **nested loop** code?\\n\\n\`\`\`python\\nfor i in range(1, 4):\\n    for j in range(i):\\n        print(i, end=' ')\\n    print()\\n\`\`\`"
 

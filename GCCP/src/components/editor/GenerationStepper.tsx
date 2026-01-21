@@ -5,6 +5,7 @@ import { CheckCircle2, Circle, Loader2, ChevronDown, ChevronUp, Clock } from 'lu
 interface Log {
     type: string;
     message?: string;
+    action?: string;
     agent?: string;
     content?: any;
     timestamp?: number;
@@ -21,8 +22,7 @@ interface StepperProps {
 const AVERAGE_STAGE_TIMES: Record<string, number> = {
     Analyzer: 4,
     Creator: 12,
-    Sanitizer: 6,
-    Reviewer: 3,
+    Validator: 8,
     Refiner: 8,
     Formatter: 4,
 };
@@ -32,8 +32,7 @@ const getAgentPipeline = (mode: string = 'lecture', hasTranscript: boolean = fal
     const pipeline = [
         hasTranscript ? { id: 'Analyzer', label: 'Analyzing', required: true } : null,
         { id: 'Creator', label: 'Drafting', required: true },
-        { id: 'Sanitizer', label: 'Fact Checking', required: hasTranscript },
-        { id: 'Reviewer', label: 'Quality Review', required: true },
+        { id: 'Validator', label: 'Validating', required: true },
         { id: 'Refiner', label: 'Polishing', required: false },
         mode === 'assignment' ? { id: 'Formatter', label: 'Formatting', required: true } : null
     ].filter(Boolean) as Array<{ id: string; label: string; required: boolean }>;
@@ -174,9 +173,14 @@ export function GenerationStepper({ logs, status, mode = 'lecture', hasTranscrip
             {isExpanded && (
                 <div className="space-y-3 mt-3 pt-3 border-t border-gray-100">
                     {pipeline.map((stage, idx) => {
-                        const hasCompleted = completedSteps.some(s => s.agent === stage.id);
+                        // Find the specific log entry for this agent to get the real action message
+                        const agentLog = completedSteps.find(s => s.agent === stage.id);
+                        const hasCompleted = !!agentLog;
                         const isActive = status === 'generating' && currentAgent === stage.id;
-                        const isPending = !hasCompleted && !isActive;
+                        
+                        // If pipeline is complete but this step (which is optional) didn't run, it's skipped
+                        const isSkipped = status === 'complete' && !hasCompleted && !stage.required;
+                        const isPending = !hasCompleted && !isActive && !isSkipped;
                         
                         return (
                             <div key={idx} className="flex items-start gap-3">
@@ -185,6 +189,8 @@ export function GenerationStepper({ logs, status, mode = 'lecture', hasTranscrip
                                         <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
                                     ) : hasCompleted ? (
                                         <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                                    ) : isSkipped ? (
+                                         <Circle className="w-4 h-4 text-gray-200" /> 
                                     ) : (
                                         <Circle className="w-4 h-4 text-gray-300" />
                                     )}
@@ -193,10 +199,13 @@ export function GenerationStepper({ logs, status, mode = 'lecture', hasTranscrip
                                     <p className={`text-sm font-medium ${
                                         isActive ? 'text-blue-700' : 
                                         hasCompleted ? 'text-gray-700' : 
+                                        isSkipped ? 'text-gray-400 line-through' :
                                         'text-gray-400'
                                     }`}>
                                         {stage.id}: {stage.label}
                                     </p>
+                                    
+                                    {/* Sub-label showing specific action or state */}
                                     {isActive && (
                                         <p className="text-xs text-blue-500 mt-0.5 animate-pulse">
                                             Processing...
@@ -207,9 +216,15 @@ export function GenerationStepper({ logs, status, mode = 'lecture', hasTranscrip
                                             Pending...
                                         </p>
                                     )}
+                                    {isSkipped && (
+                                        <p className="text-xs text-gray-400 mt-0.5 italic">
+                                            Not needed
+                                        </p>
+                                    )}
                                     {hasCompleted && !isActive && (
                                         <p className="text-xs text-emerald-600 mt-0.5">
-                                            ✓ Complete
+                                            {/* Show the actual message from the agent if available, else generic complete */}
+                                            {agentLog?.action || agentLog?.message || '✓ Complete'}
                                         </p>
                                     )}
                                 </div>

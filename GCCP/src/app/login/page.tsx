@@ -20,13 +20,6 @@ export default function LoginPage() {
     }
   };
 
-  const handleCreateDemoAccount = () => {
-      const { password: newPassword } = AuthManager.createUser(username || 'demo', 'user');
-      setPassword(newPassword);
-      setUsername(username || 'demo');
-      setError(`Account created! Password: ${newPassword}`);
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-2xl shadow-xl border border-gray-200">
@@ -34,9 +27,6 @@ export default function LoginPage() {
           <h2 className="mt-6 text-3xl font-extrabold text-gray-900">
             Sign in to your account
           </h2>
-          <p className="mt-2 text-sm text-gray-600">
-            Or <button onClick={handleCreateDemoAccount} className="font-medium text-blue-600 hover:text-blue-500">create a demo account</button>
-          </p>
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleLogin}>
           <div className="rounded-md shadow-sm -space-y-px">

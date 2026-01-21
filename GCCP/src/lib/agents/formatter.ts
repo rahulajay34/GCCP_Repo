@@ -17,6 +17,21 @@ Do not strip or modify the content, only structure it as JSON.`;
     }
 
     async formatAssignment(content: string, signal?: AbortSignal): Promise<string> {
+        // FAST PATH: Check if content is already valid JSON
+        // This avoids redundant LLM calls that often strip markdown formatting
+        try {
+            const fastParsed = await parseLLMJson<any[]>(content, []);
+            if (fastParsed.length > 0) {
+                const fastValidation = validateAssignment(fastParsed);
+                if (fastValidation.isValid) {
+                    console.log("Formatter: Fast Path successful - skipping LLM");
+                    return JSON.stringify(fastParsed, null, 2);
+                }
+            }
+        } catch (e) {
+            // Check failed, proceed to LLM
+        }
+
         const prompt = `CONTENT:
 ${content}
 
@@ -47,7 +62,10 @@ CRITICAL RULES:
         });
 
         const textBlock = response.content.find(b => b.type === 'text');
-        const text = textBlock?.type === 'text' ? textBlock.text : '[]';
+        let text = textBlock?.type === 'text' ? textBlock.text : '[]';
+
+        // Fix: Strip markdown code blocks if present (Point 5.1 cleanup)
+        text = text.replace(/```json\n?|\n?```/g, '').trim();
 
         try {
             const parsed = await parseLLMJson<any[]>(text, []);

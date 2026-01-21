@@ -11,7 +11,7 @@ import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github.css';
 import { useEffect, useState, useRef, useMemo } from 'react';
 import debounce from 'lodash/debounce';
-import { FileText, Loader2, Download, RefreshCw, Square, Trash2, Activity } from 'lucide-react';
+import { FileText, Loader2, Download, RefreshCw, Square, Trash2, Activity, Maximize2, Minimize2 } from 'lucide-react';
 import { Mermaid } from '@/components/ui/Mermaid';
 import { GapAnalysisPanel } from '@/components/editor/GapAnalysis';
 import { MetricsDashboard } from '@/components/editor/MetricsDashboard';
@@ -32,6 +32,7 @@ export default function EditorPage() {
   
   const [showTranscript, setShowTranscript] = useState(false);
   const [showMetrics, setShowMetrics] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(false);
   
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -42,26 +43,7 @@ export default function EditorPage() {
       if (!showTranscript) setShowTranscript(true);
   };
   
-  const handlePushToLMS = () => {
-      if (!finalContent) return;
-      
-      const payload = {
-          topic,
-          subtopics,
-          content: formattedContent || finalContent,
-          timestamp: new Date().toISOString()
-      };
-      
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `lms_export_${topic.replace(/\s+/g, '_')}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-  };
+
   
   const handleDownloadMarkdown = () => {
         if (!finalContent) return;
@@ -224,12 +206,12 @@ export default function EditorPage() {
                  </label>
                  
                  <button 
-                    onClick={handlePushToLMS}
+                    onClick={handleDownloadMarkdown}
                     disabled={!finalContent}
                     className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-emerald-100 transition-colors ml-auto"
                  >
                     <Download size={14} />
-                    Push to LMS
+                    Download
                  </button>
             </div>
         </div>
@@ -403,9 +385,11 @@ export default function EditorPage() {
             </div>
       ) : (
           /* For lecture/pre-read mode: Show editor and preview panels */
-          <div className="grid grid-cols-2 gap-6 h-[777px]">
+          <div className={`grid gap-6 h-[777px] transition-all duration-300 ${isFullScreen ? 'grid-cols-1' : 'grid-cols-2'}`}>
             <div className={`bg-white rounded-2xl border shadow-sm flex flex-col overflow-hidden relative transition-all duration-500 ${
-              currentAgent === 'Sanitizer' ? 'border-orange-300 ring-4 ring-orange-50/50 shadow-orange-100' :
+              isFullScreen ? 'hidden' : ''
+            } ${
+              currentAgent === 'Validator' ? 'border-orange-300 ring-4 ring-orange-50/50 shadow-orange-100' :
               currentAgent === 'Refiner' ? 'border-purple-300 ring-4 ring-purple-50/50 shadow-purple-100' :
               'border-gray-200'
             }`}>
@@ -415,12 +399,12 @@ export default function EditorPage() {
                     Editor (Markdown)
                 </span>
                 {/* Live Agent Status Indicators */}
-                {currentAgent === 'Sanitizer' && (
+                {status === 'generating' && currentAgent === 'Validator' && (
                   <span className="text-xs font-bold text-orange-600 animate-pulse flex items-center gap-1">
-                    🔍 Checking Facts...
+                    🔍 Validating Content...
                   </span>
                 )}
-                {currentAgent === 'Refiner' && (
+                {status === 'generating' && currentAgent === 'Refiner' && (
                   <span className="text-xs font-bold text-purple-600 animate-pulse flex items-center gap-1">
                     ✨ Polishing...
                   </span>
@@ -460,6 +444,13 @@ export default function EditorPage() {
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
                     Preview
                 </span>
+                <button
+                    onClick={() => setIsFullScreen(!isFullScreen)}
+                    className="p-1 text-gray-400 hover:text-indigo-600 rounded transition-colors"
+                    title={isFullScreen ? "Exit Full Screen" : "Full Screen"}
+                >
+                    {isFullScreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                </button>
               </div>
                <div className="flex-1 overflow-y-auto p-8 bg-gray-50/30">
                  {finalContent ? (

@@ -1,11 +1,11 @@
+'use client';
 import Link from 'next/link';
-import { LayoutDashboard, FileEdit, Database, Users } from 'lucide-react';
+import { LayoutDashboard, FileEdit, Database, LogOut } from 'lucide-react';
 
 const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard, href: '/' },
   { label: 'Editor', icon: FileEdit, href: '/editor' },
   { label: 'Archives', icon: Database, href: '/archives' },
-  { label: 'Users', icon: Users, href: '/users' }, // Admin only usually
 ];
 
 export function Sidebar() {
@@ -16,7 +16,6 @@ export function Sidebar() {
     <aside className="hidden lg:flex flex-col w-64 border-r border-gray-200 h-[calc(100vh-4rem)] bg-white sticky top-16">
       <nav className="flex-1 p-4 space-y-2">
         {navItems.map((item) => {
-            if (item.label === 'Users' && !isAdmin) return null;
             return (
               <Link
                 key={item.href}
@@ -30,7 +29,15 @@ export function Sidebar() {
         })}
       </nav>
       
-      {/* Pro Plan Removed */}
+      <div className="p-4 border-t border-gray-200">
+         <button 
+           onClick={() => import('@/lib/storage/auth').then(m => m.AuthManager.logout())}
+           className="flex items-center gap-3 px-4 py-3 w-full rounded-lg text-gray-600 hover:bg-red-50 hover:text-red-600 transition-colors"
+         >
+             <LogOut className="w-5 h-5" />
+             <span className="font-medium">Sign Out</span>
+         </button>
+      </div>
     </aside>
   );
 }
