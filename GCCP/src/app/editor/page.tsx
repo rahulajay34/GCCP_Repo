@@ -9,7 +9,8 @@ import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github.css';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import debounce from 'lodash/debounce';
 import { FileText, Loader2, Download, RefreshCw, Square, Trash2 } from 'lucide-react';
 import { Mermaid } from '@/components/ui/Mermaid';
 import { GapAnalysisPanel } from '@/components/editor/GapAnalysis';
@@ -77,6 +78,14 @@ export default function EditorPage() {
 
   // 1. Add this ref for auto-scrolling (within preview panel only)
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Debounced content update to prevent lag
+  const debouncedSetContent = useCallback(
+    debounce((value: string) => {
+      setContent(value);
+    }, 300),
+    [setContent]
+  );
 
       // Auto-scroll within preview panel only - NOT the whole page
       // This effect is now disabled to let users scroll freely
@@ -324,12 +333,12 @@ export default function EditorPage() {
       {mode === 'assignment' ? (
             /* For assignment mode: Show AssignmentWorkspace or loading state */
             <div className="h-[700px]">
-                {formattedContent && formattedContent.length > 5 ? (
+                {formattedContent && (status === 'idle' || status === 'complete') ? (
                     <AssignmentWorkspace 
                         jsonContent={formattedContent || '[]'} 
                         onUpdate={setFormattedContent}
                     />
-                ) : status === 'generating' ? (
+                ) : status === 'generating' || currentAgent === 'Formatter' ? (
                     <div className="h-full flex flex-col items-center justify-center bg-white rounded-2xl border border-gray-200 p-8">
                         <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
                         <h3 className="text-lg font-semibold text-gray-700 mb-2">Generating Assignment</h3>
@@ -384,8 +393,8 @@ export default function EditorPage() {
                  <Editor
                     height="100%"
                     defaultLanguage="markdown"
-                    value={finalContent || ''}
-                    onChange={(value) => setContent(value || '')}
+                    defaultValue={finalContent || ''}
+                    onChange={(value) => debouncedSetContent(value || '')}
                     theme="light"
                     loading={<div className="flex items-center justify-center h-full"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>}
                     options={{

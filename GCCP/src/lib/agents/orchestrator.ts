@@ -231,10 +231,12 @@ export class Orchestrator {
             message: "Polished"
           };
         } else {
+          // FALLBACK: User safety - if patching fails, keep original
+          console.warn("Refiner ran but no patch blocks were detected in output of length: " + patchOutput.length);
           yield {
             type: "step",
             agent: "Refiner",
-            action: "No specific text matches found for fixes.",
+            action: "Formatting mismatch - keeping original draft.",
             message: "Polishing Skipped"
           };
         }
