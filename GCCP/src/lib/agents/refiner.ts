@@ -13,7 +13,7 @@ Your goal is to apply specific feedback to refine educational content to Gold St
 
 You output "Search and Replace" blocks to minimize token usage and preserve the rest of the text.
 
-CRITICAL FORMATTING RULES:
+CRITICAL FORMATTING RULES :
 - Preserve ALL markdown formatting (headers, bold, italic)
 - Preserve triple backticks for code blocks (\`\`\`python ... \`\`\`)
 - Never strip or modify code block delimiters
