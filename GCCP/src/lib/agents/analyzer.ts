@@ -66,7 +66,7 @@ Also list the main topics that ARE covered in the transcript (even if they don't
         timestamp: new Date().toISOString()
       };
     } catch (e) {
-      console.error("Failed to parse analyzer response:", content, e);
+      console.error("Failed to parse analyzer response: ", content, e);
       // Fallback
       return {
         covered: [],
