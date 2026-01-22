@@ -11,7 +11,7 @@ export class FormatterAgent extends BaseAgent {
     getSystemPrompt(): string {
         return `You are a Data Formatter.
 Your job is to convert assignment content into structured JSON format.
-CRITICAL: Preserve all markdown formatting inside contentBody and answerExplanation fields.
+CRITICAL:Preserve all markdown formatting inside contentBody and answerExplanation fields.
 This includes code blocks with triple backticks, bold text, etc.
 Do not strip or modify the content, only structure it as JSON.`;
     }
