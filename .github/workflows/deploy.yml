@@ -37,6 +37,9 @@ jobs:
       - name: Build
         # We run the build command inside the GCCP folder
         working-directory: ./GCCP
+        # THIS IS THE NEW PART: Inject the secret as an environment variable
+        env:
+          NEXT_PUBLIC_ANTHROPIC_API_KEY: ${{ secrets.NEXT_PUBLIC_ANTHROPIC_API_KEY }}
         run: npm run build
 
       - name: Upload artifact
