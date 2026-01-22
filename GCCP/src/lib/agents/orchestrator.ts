@@ -9,7 +9,7 @@ import { CourseDetectorAgent, CourseContext } from "./course-detector";
 import { GenerationParams } from "@/types/content";
 import { AuthManager } from "@/lib/storage/auth";
 import { calculateCost, estimateTokens } from "@/lib/anthropic/token-counter";
-import { cacheGapAnalysis } from "@/lib/utils/cache";
+import { cacheGapAnalysis, cache, simpleHash } from "@/lib/utils/cache";
 import { applySearchReplace } from "./utils/text-diff";
 
 export class Orchestrator {
@@ -40,7 +40,7 @@ export class Orchestrator {
     let gapAnalysisResult: { covered: string[]; notCovered: string[]; partiallyCovered: string[]; transcriptTopics: string[]; timestamp: string } | null = null;
     let courseContext: CourseContext | undefined;
 
-    // 0. Course Detection (Automatic domain inference)
+    // 0. Course Detection + Transcript Analysis (Parallel when possible)
     yield {
       type: "step",
       agent: "CourseDetector",
@@ -49,81 +49,125 @@ export class Orchestrator {
       message: "Detecting Course Context"
     };
 
-    try {
-      courseContext = await this.courseDetector.detect(topic, subtopics, transcript);
+    // Check cache for CourseContext first
+    const courseContextCacheKey = `course:${simpleHash(topic + subtopics)}`;
+    let cachedCourseContext = cache.get<CourseContext>(courseContextCacheKey);
 
-      const detectInputTok = estimateTokens(`${topic} ${subtopics} ${(transcript || '').slice(0, 5000)}`);
-      const detectOutputTok = estimateTokens(JSON.stringify(courseContext));
-      currentCost += calculateCost("claude-haiku-4-5-20251001", detectInputTok, detectOutputTok);
-
+    if (cachedCourseContext) {
+      courseContext = cachedCourseContext;
       yield {
         type: "course_detected",
         content: courseContext,
-        message: `Detected domain: ${courseContext.domain} (${Math.round(courseContext.confidence * 100)}% confidence)`
+        message: `Detected domain: ${courseContext.domain} (cached)`
       };
-    } catch (err) {
-      if (signal?.aborted) throw err;
-      console.error("Course detection failed", err);
-      yield { type: "error", message: "Course detection failed, using generic context..." };
-      // Continue with undefined courseContext - agents will use generic prompts
     }
 
-    // 1. Transcript Analysis (Optional)
-    let useTranscript = !!transcript;
+    // Run CourseDetector and Analyzer in parallel if both needed
+    const needsCourseDetection = !cachedCourseContext;
+    const needsAnalysis = transcript && subtopics;
 
-    if (transcript && subtopics) {
-      yield {
-        type: "step",
-        agent: "Analyzer",
-        action: "Checking transcript coverage...",
-        message: "Analyzing Gaps"
-      };
+    try {
+      if (needsCourseDetection && needsAnalysis) {
+        // PARALLEL: Run both together
+        yield {
+          type: "step",
+          agent: "Analyzer",
+          action: "Checking transcript coverage...",
+          message: "Analyzing Gaps (parallel)"
+        };
 
-      try {
         const cacheKey = `${topic}:${subtopics.slice(0, 100)}`;
-        const analysis = await cacheGapAnalysis(
-          cacheKey,
-          transcript,
-          subtopics,
-          () => this.analyzer.analyze(subtopics, transcript, signal)
-        );
+        const [detectedContext, analysis] = await Promise.all([
+          this.courseDetector.detect(topic, subtopics, transcript),
+          cacheGapAnalysis(cacheKey, transcript, subtopics, () => this.analyzer.analyze(subtopics, transcript, signal))
+        ]);
+
+        courseContext = detectedContext;
+        cache.set(courseContextCacheKey, courseContext); // Cache for next time
+        gapAnalysisResult = analysis;
+
+        const detectInputTok = estimateTokens(`${topic} ${subtopics} ${(transcript || '').slice(0, 5000)}`);
+        const detectOutputTok = estimateTokens(JSON.stringify(courseContext));
+        currentCost += calculateCost(this.courseDetector.model, detectInputTok, detectOutputTok);
+
+        const inputTok = estimateTokens(this.analyzer.formatUserPrompt(subtopics, transcript));
+        const outputTok = estimateTokens(JSON.stringify(analysis));
+        currentCost += calculateCost(this.analyzer.model, inputTok, outputTok);
+
+        yield {
+          type: "course_detected",
+          content: courseContext,
+          message: `Detected domain: ${courseContext.domain} (${Math.round(courseContext.confidence * 100)}% confidence)`
+        };
+        yield { type: "gap_analysis", content: analysis };
+
+        // Check for mismatch
+        const totalSubtopics = analysis.covered.length + analysis.notCovered.length + analysis.partiallyCovered.length;
+        const coveredCount = analysis.covered.length + analysis.partiallyCovered.length;
+        if (totalSubtopics > 0 && coveredCount === 0) {
+          yield {
+            type: "mismatch_stop",
+            message: "The transcript appears unrelated to the topic/subtopics.",
+            cost: currentCost
+          };
+          return;
+        }
+      } else if (needsCourseDetection) {
+        // Only CourseDetection needed
+        courseContext = await this.courseDetector.detect(topic, subtopics, transcript);
+        cache.set(courseContextCacheKey, courseContext);
+
+        const detectInputTok = estimateTokens(`${topic} ${subtopics} ${(transcript || '').slice(0, 5000)}`);
+        const detectOutputTok = estimateTokens(JSON.stringify(courseContext));
+        currentCost += calculateCost(this.courseDetector.model, detectInputTok, detectOutputTok);
+
+        yield {
+          type: "course_detected",
+          content: courseContext,
+          message: `Detected domain: ${courseContext.domain} (${Math.round(courseContext.confidence * 100)}% confidence)`
+        };
+      } else if (needsAnalysis) {
+        // Only Analysis needed (CourseContext was cached)
+        yield {
+          type: "step",
+          agent: "Analyzer",
+          action: "Checking transcript coverage...",
+          message: "Analyzing Gaps"
+        };
+
+        const cacheKey = `${topic}:${subtopics.slice(0, 100)}`;
+        const analysis = await cacheGapAnalysis(cacheKey, transcript, subtopics, () => this.analyzer.analyze(subtopics, transcript, signal));
         gapAnalysisResult = analysis;
 
         const inputTok = estimateTokens(this.analyzer.formatUserPrompt(subtopics, transcript));
         const outputTok = estimateTokens(JSON.stringify(analysis));
-        currentCost += calculateCost("claude-haiku-4-5-20251001", inputTok, outputTok);
+        currentCost += calculateCost(this.analyzer.model, inputTok, outputTok);
 
         yield { type: "gap_analysis", content: analysis };
 
         const totalSubtopics = analysis.covered.length + analysis.notCovered.length + analysis.partiallyCovered.length;
         const coveredCount = analysis.covered.length + analysis.partiallyCovered.length;
-
         if (totalSubtopics > 0 && coveredCount === 0) {
           yield {
-            type: "step",
-            agent: "Analyzer",
-            action: "⚠️ Transcript doesn't match topic",
-            message: "Mismatch Detected"
-          };
-          yield {
             type: "mismatch_stop",
-            message: "The transcript appears unrelated to the topic/subtopics. None of the subtopics were found in the transcript.",
+            message: "The transcript appears unrelated to the topic/subtopics.",
             cost: currentCost
           };
           return;
         }
-      } catch (err) {
-        if (signal?.aborted) throw err;
-        console.error("Analysis failed", err);
-        yield { type: "error", message: "Gap Analysis failed, continuing..." };
       }
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      console.error("Initial analysis failed", err);
+      yield { type: "error", message: "Analysis failed, continuing..." };
     }
 
     // 2. Creator Phase
+    const useTranscript = !!transcript;
     yield {
       type: "step",
       agent: "Creator",
-      status: "working", // Added status for UI
+      status: "working",
       action: useTranscript ? "Drafting with transcript..." : "Drafting initial content...",
       message: `Drafting ${mode}...`
     };
@@ -135,7 +179,7 @@ export class Orchestrator {
         mode,
         transcript: useTranscript ? transcript : undefined,
         gapAnalysis: useTranscript ? (gapAnalysisResult || undefined) : undefined,
-        courseContext, // Pass course context to Creator
+        courseContext,
         assignmentCounts
       };
 
@@ -148,7 +192,7 @@ export class Orchestrator {
 
       const cInput = estimateTokens(this.creator.formatUserPrompt(creatorOptions));
       const cOutput = estimateTokens(currentContent);
-      currentCost += calculateCost("claude-sonnet-4-5-20250929", cInput, cOutput);
+      currentCost += calculateCost(this.creator.model, cInput, cOutput);
 
       // 3. SANITIZER (Strictness)
       if (transcript) {
@@ -169,15 +213,16 @@ export class Orchestrator {
         // Sanitizer Cost (approximated, input roughly same as Creator output + transcript portion)
         const sInput = estimateTokens(transcript.slice(0, 50000) + currentContent);
         const sOutput = estimateTokens(sanitized);
-        currentCost += calculateCost("claude-haiku-4-5-20251001", sInput, sOutput);
+        currentCost += calculateCost(this.sanitizer.model, sInput, sOutput);
       }
 
-      // 4. QUALITY LOOP (Iterative Refinement)
+      // 4. QUALITY LOOP (Iterative Refinement with Progressive Thresholds)
       let loopCount = 0;
-      const MAX_LOOPS = 3; // Strict limit to prevent potential infinite loops/high costs
+      const MAX_LOOPS = 3;
       let isQualityMet = false;
+      let previousIssues: string[] = []; // Track issues for section-based refinement
 
-      while (loopCount <= MAX_LOOPS && !isQualityMet) {
+      while (loopCount < MAX_LOOPS && !isQualityMet) {
         loopCount++;
 
         yield {
@@ -193,21 +238,26 @@ export class Orchestrator {
         // Reviewer Cost
         const revInput = estimateTokens(currentContent.slice(0, 20000));
         const revOutput = 200;
-        currentCost += calculateCost("claude-haiku-4-5-20251001", revInput, revOutput);
+        currentCost += calculateCost(this.reviewer.model, revInput, revOutput);
 
-        if (!review.needsPolish) {
+        // Progressive thresholds: 9 for first loop, 8 for subsequent
+        const qualityThreshold = loopCount === 1 ? 9 : 8;
+        const passesThreshold = review.score >= qualityThreshold;
+
+        if (passesThreshold || !review.needsPolish) {
           isQualityMet = true;
           yield {
             type: "step",
             agent: "Reviewer",
             status: "success",
             action: "Draft meets standards...",
-            message: "✅ Draft meets Gold Standard."
+            message: `✅ Draft meets quality threshold (score: ${review.score}).`
           };
           break;
         }
 
-        if (loopCount > MAX_LOOPS) {
+        // Last loop - don't refine, just proceed
+        if (loopCount >= MAX_LOOPS) {
           yield {
             type: "step",
             agent: "Reviewer",
@@ -218,7 +268,7 @@ export class Orchestrator {
           break;
         }
 
-        // Refine Phase
+        // Refine Phase - pass previous issues for section context
         yield {
           type: "step",
           agent: "Refiner",
@@ -227,22 +277,23 @@ export class Orchestrator {
           message: `Refining: ${review.feedback}`
         };
 
+        // For loop 2+, include previous issues for context awareness
+        const contextAwareFeedback = loopCount > 1 && previousIssues.length > 0
+          ? [...review.detailedFeedback, `\nCONTEXT FROM PREVIOUS REVIEW: ${previousIssues.slice(0, 3).join('; ')}`]
+          : review.detailedFeedback;
+
         let refinerOutput = "";
         const refinerStream = this.refiner.refineStream(
           currentContent,
           review.feedback,
-          review.detailedFeedback,
+          contextAwareFeedback,
           courseContext,
           signal
         );
 
-        // Do not yield chunks directly to avoid showing diff blocks
-        // yield { type: "replace", content: "" }; 
-
         for await (const chunk of refinerStream) {
           if (signal?.aborted) throw new Error('Aborted');
           refinerOutput += chunk;
-          // yield { type: "chunk", content: chunk };
         }
 
         // Apply the patches
@@ -251,9 +302,12 @@ export class Orchestrator {
         currentContent = refinedContent;
         yield { type: "replace", content: currentContent };
 
+        // Store issues for next loop's context
+        previousIssues = review.detailedFeedback;
+
         const refInput = estimateTokens(currentContent + review.feedback);
         const refOutput = estimateTokens(refinedContent);
-        currentCost += calculateCost("claude-sonnet-4-5-20250929", refInput, refOutput);
+        currentCost += calculateCost(this.refiner.model, refInput, refOutput);
       }
 
       // 5. FORMATTER (Assignment Only)
@@ -271,7 +325,7 @@ export class Orchestrator {
 
         const fInput = estimateTokens(currentContent);
         const fOutput = estimateTokens(formatted);
-        currentCost += calculateCost("claude-haiku-4-5-20251001", fInput, fOutput);
+        currentCost += calculateCost(this.formatter.model, fInput, fOutput);
       }
 
       // Final cleanup done by Validator previously (sanitizeAIPatterns) could go here if needed,

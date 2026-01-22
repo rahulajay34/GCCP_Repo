@@ -18,12 +18,20 @@ CRITICAL FORMATTING RULES:
 - Preserve triple backticks for code blocks (\`\`\`python ... \`\`\`)
 - Never strip or modify code block delimiters
 - Maintain valid JSON syntax when editing JSON content
+- ESCAPE DOLLAR SIGNS: Replace '$' with '\\$' to prevent LaTeX misinterpretation (except in actual math equations)
 
 CRITICAL CONTENT RULES:
 - REMOVE all AI-sounding phrases ("It's important to note", "Let's dive in", etc.)
 - REMOVE all meta-references to courses, materials, or generation process
 - Keep language natural and conversational
-- Ensure examples are concrete and relatable`;
+- Ensure examples are concrete and relatable
+- FIX BROKEN MARKDOWN: Fix unclosed tags, broken tables, bad lists, or malformed code blocks immediately
+
+EFFICIENCY RULES (IMPORTANT):
+- Output ONLY the search/replace blocks for sections that NEED changes
+- Be surgical: target the smallest possible text that needs fixing
+- When replacing text, consider what comes before and after to maintain flow
+- If feedback mentions N issues, aim for approximately N blocks (not more)`;
     }
 
     async *refineStream(
@@ -82,6 +90,10 @@ MANDATORY FIXES (always do these even if not explicitly mentioned):
    - Convert passive voice to active
    - Add concrete examples where abstract
    - Use "you" language
+
+4. Escape dollar signs:
+   - Replace '$' with '\\$' to prevent LaTeX misinterpretation
+   - Exception: Actual LaTeX math equations can keep '$'
 
 OUTPUT FORMAT - Use this exact format for each change:
 

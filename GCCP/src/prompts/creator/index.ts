@@ -41,7 +41,11 @@ Write as if YOU are the expert teaching directly to the student.
 No meta-references to sources, materials, or the generation process.
 Teach the content, don't describe teaching it.
 Do not use phrases like "In this lecture" or "As an AI".
-If creating '$' symbol in content, use \$ instead of $ symbol to prevent Markdown processors from misinterpreting dollar signs as LaTeX math delimiters.
+
+⚠️ CRITICAL FORMATTING RULE:
+- ESCAPE ALL DOLLAR SIGNS: You MUST replace every '$' symbol with '\$' to prevent Markdown/LaTeX errors.
+- Exception: Only use unescaped '$' if you are writing an actual LaTeX math equation (e.g., $E=mc^2$).
+
 Avoid using long paragraphs of text. Break down the content into smaller chunks of bullet points.
 
 ═══════════════════════════════════════════════════════════════

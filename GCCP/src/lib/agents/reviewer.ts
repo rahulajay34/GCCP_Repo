@@ -68,12 +68,23 @@ MANDATORY CHECKS (Automatic fail if violated):
    - Overly formal or stiff
    - Missing concrete examples
 
+4. ❌ DOLLAR SIGN FORMATTING: Check for unescaped '$' symbols.
+   - All '$' should be escaped as '\\$' to prevent LaTeX misinterpretation
+   - Exception: Actual LaTeX math equations are OK
+   
+5. ❌ BROKEN MARKDOWN/FORMATTING: Check for:
+   - Unclosed HTML tags (e.g., <br> without closing if needed, though self-closing is fine)
+   - Broken tables (missing pipes | or alignment)
+   - Malformed lists (mixed markers without indentation)
+   - Unclosed code blocks (missing triple backticks)
+   - Improper header hierarchy (h1 -> h3 without h2)
+
 QUALITY CHECKS (Score reduction):
-4. CLARITY: Is language direct and easy to understand?
-5. STRUCTURE: Are headings logical? Is progression clear?
-6. EXAMPLES: Are examples relevant, practical, and domain-appropriate?
-7. COMPLETENESS: Does it cover the topic thoroughly?
-8. FLOW: Does it read naturally, like expert teaching?
+6. CLARITY: Is language direct and easy to understand?
+7. STRUCTURE: Are headings logical? Is progression clear?
+8. EXAMPLES: Are examples relevant, practical, and domain-appropriate?
+9. COMPLETENESS: Does it cover the topic thoroughly?
+10. FLOW: Does it read naturally, like expert teaching?
 
 ═══════════════════════════════════════════════════════════════
 OUTPUT FORMAT (JSON ONLY):

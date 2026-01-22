@@ -13,7 +13,7 @@ export interface ValidationResult {
 export class ValidatorAgent extends BaseAgent {
     constructor(client: AnthropicClient) {
         // Using Haiku for cost efficiency check
-        super("Validator", "claude-haiku-4-5-20251001", client);
+        super("Validator", "claude-sonnet-4-5-20250929", client);
     }
 
     getSystemPrompt(mode: string): string {
