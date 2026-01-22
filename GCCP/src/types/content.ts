@@ -10,6 +10,24 @@ export interface GapAnalysisResult {
   timestamp: string;
 }
 
+/**
+ * Course context automatically detected by CourseDetector agent
+ * Used to tailor content for specific educational domains
+ */
+export interface CourseContext {
+  domain: string;
+  confidence: number;
+  characteristics: {
+    exampleTypes: string[];
+    formats: string[];
+    vocabulary: string[];
+    styleHints: string[];
+    relatableExamples: string[];
+  };
+  contentGuidelines: string;
+  qualityCriteria: string;
+}
+
 export interface GenerationParams {
   topic: string;
   subtopics: string;

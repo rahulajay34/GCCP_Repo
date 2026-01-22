@@ -40,58 +40,6 @@ export interface AssignmentItem {
 }
 
 /**
- * Legacy format from Creator agent - used for internal processing
- * Will be converted to AssignmentItem by Formatter
- */
-export interface LegacyAssignmentQuestion {
-    type: 'MCSC' | 'MCMC' | 'Subjective';
-    question_text: string;
-    options?: string[];
-    correct_option?: string;    // "A" for MCSC, "A,C" for MCMC
-    explanation: string;
-    model_answer?: string;      // For Subjective
-}
-
-/**
- * Convert legacy question format to new AssignmentItem format
- */
-export function convertLegacyToAssignmentItem(legacy: LegacyAssignmentQuestion): AssignmentItem {
-    const optionsArray = legacy.options || ['', '', '', ''];
-
-    // Map letter-based answers to numeric indices
-    const letterToIndex: Record<string, number> = { 'A': 1, 'B': 2, 'C': 3, 'D': 4 };
-
-    let mcscAnswer: number | undefined;
-    let mcmcAnswer: string | undefined;
-
-    if (legacy.type === 'MCSC' && legacy.correct_option) {
-        mcscAnswer = letterToIndex[legacy.correct_option.toUpperCase().trim()] || 1;
-    } else if (legacy.type === 'MCMC' && legacy.correct_option) {
-        // Convert "A,C" to "1, 3"
-        const letters = legacy.correct_option.split(',').map(l => l.trim().toUpperCase());
-        const indices = letters.map(l => letterToIndex[l]).filter(Boolean);
-        mcmcAnswer = indices.join(', ');
-    }
-
-    return {
-        questionType: legacy.type.toLowerCase() as QuestionType,
-        contentType: 'markdown',
-        contentBody: legacy.question_text,
-        options: {
-            1: optionsArray[0] || '',
-            2: optionsArray[1] || '',
-            3: optionsArray[2] || '',
-            4: optionsArray[3] || '',
-        },
-        mcscAnswer,
-        mcmcAnswer,
-        subjectiveAnswer: legacy.type === 'Subjective' ? legacy.model_answer : undefined,
-        difficultyLevel: 'Medium',
-        answerExplanation: legacy.explanation || '',
-    };
-}
-
-/**
  * CSV headers matching temp - template.csv
  */
 export const CSV_HEADERS = [
@@ -162,4 +110,36 @@ export function generateCSV(items: AssignmentItem[]): string {
             .join(',');
     });
     return [headerRow, ...dataRows].join('\r\n');
+}
+
+/**
+ * Legacy support
+ */
+export interface LegacyAssignmentQuestion {
+    type: string;
+    question: string;
+    options?: string[];
+    answer?: string | number;
+    explanation?: string;
+    // Add other legacy fields as needed
+}
+
+export function convertLegacyToAssignmentItem(legacy: LegacyAssignmentQuestion): AssignmentItem {
+    const isMcq = legacy.type === 'mcq' || legacy.type === 'mcsc';
+
+    return {
+        questionType: isMcq ? 'mcsc' : 'subjective',
+        contentType: 'markdown',
+        contentBody: legacy.question || '',
+        options: {
+            1: legacy.options?.[0] || '',
+            2: legacy.options?.[1] || '',
+            3: legacy.options?.[2] || '',
+            4: legacy.options?.[3] || '',
+        },
+        mcscAnswer: typeof legacy.answer === 'number' ? legacy.answer : undefined,
+        subjectiveAnswer: typeof legacy.answer === 'string' ? legacy.answer : undefined,
+        difficultyLevel: 'Medium',
+        answerExplanation: legacy.explanation || '',
+    };
 }

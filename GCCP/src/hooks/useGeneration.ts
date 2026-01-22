@@ -59,7 +59,6 @@ export const useGeneration = () => {
             return;
         }
 
-        store.setStatus('generating');
         store.clearGenerationState();
         store.setStatus('generating');
         setError(null);
@@ -91,6 +90,13 @@ export const useGeneration = () => {
                 } else if (event.type === 'gap_analysis') {
                     store.setGapAnalysis(event.content);
                     store.addLog('Gap analysis complete', 'success');
+                } else if (event.type === 'course_detected') {
+                    // Show detected domain to user
+                    const courseData = event.content as any;
+                    const domain = courseData?.domain || 'general';
+                    const confidence = courseData?.confidence || 0;
+                    store.addStepLog('CourseDetector', `Detected: ${domain} (${Math.round(confidence * 100)}%)`);
+                    store.addLog(`Content domain detected: ${domain}`, 'success');
                 } else if (event.type === 'replace') {
                     store.setContent(event.content as string);
                     store.addLog('Content updated by agent', 'info');
@@ -98,6 +104,9 @@ export const useGeneration = () => {
                     store.setFormattedContent(event.content as string);
                     store.addLog('Content formatted for LMS', 'success');
                 } else if (event.type === 'complete') {
+                    // Flush any buffered content before completing
+                    store.flushContentBuffer();
+
                     store.setStatus('complete');
                     store.addLog('Generation completed successfully', 'success');
 

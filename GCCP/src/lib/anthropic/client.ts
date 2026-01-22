@@ -72,7 +72,7 @@ export class AnthropicClient {
     return this.withRetry(
       () => this.client.messages.create({
         model: params.model,
-        max_tokens: params.maxTokens || 4096,
+        max_tokens: params.maxTokens || 8096,
         messages: params.messages,
         system: params.system,
         temperature: params.temperature || 0.7,
@@ -94,7 +94,7 @@ export class AnthropicClient {
     const stream = await this.withRetry(
       () => this.client.messages.create({
         model: params.model,
-        max_tokens: params.maxTokens || 4096,
+        max_tokens: params.maxTokens || 8096,
         messages: params.messages,
         system: params.system,
         temperature: params.temperature || 0.7,

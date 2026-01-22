@@ -1,5 +1,6 @@
 import { BaseAgent } from "./base-agent";
 import { AnthropicClient } from "@/lib/anthropic/client";
+import { CourseContext } from "@/types/content";
 
 export class RefinerAgent extends BaseAgent {
     constructor(client: AnthropicClient) {
@@ -7,41 +8,94 @@ export class RefinerAgent extends BaseAgent {
     }
 
     getSystemPrompt(): string {
-        return `You are a Precise Text Editor.
-Your goal is to apply specific feedback to refine the content without rewriting everything.
+        return `You are an Expert Content Editor and Polisher.
+Your goal is to apply specific feedback to refine educational content to Gold Standard quality.
+
 You output "Search and Replace" blocks to minimize token usage and preserve the rest of the text.
 
-CRITICAL: Preserve ALL markdown formatting, especially:
-- Triple backticks for code blocks (\`\`\`python ... \`\`\`)
-- Bold, italic, headers
-- Never strip or modify code block delimiters`;
+CRITICAL FORMATTING RULES:
+- Preserve ALL markdown formatting (headers, bold, italic)
+- Preserve triple backticks for code blocks (\`\`\`python ... \`\`\`)
+- Never strip or modify code block delimiters
+- Maintain valid JSON syntax when editing JSON content
+
+CRITICAL CONTENT RULES:
+- REMOVE all AI-sounding phrases ("It's important to note", "Let's dive in", etc.)
+- REMOVE all meta-references to courses, materials, or generation process
+- Keep language natural and conversational
+- Ensure examples are concrete and relatable`;
     }
 
-    async *refineStream(content: string, feedback: string, signal?: AbortSignal) {
-        const prompt = `You are a targeted text editor.
-        
-Current Content:
+    async *refineStream(
+        content: string,
+        feedback: string,
+        detailedFeedback?: string[],
+        courseContext?: CourseContext,
+        signal?: AbortSignal
+    ) {
+        // Build domain context hint if available
+        const domainHint = courseContext ? `
+DOMAIN CONTEXT (use this to guide your refinements):
+- Style: ${courseContext.characteristics.styleHints.join(', ')}
+- Good examples for this domain: ${courseContext.characteristics.exampleTypes.slice(0, 3).join(', ')}
+` : '';
+
+        // Build detailed feedback section
+        const detailedSection = detailedFeedback && detailedFeedback.length > 0 ? `
+═══════════════════════════════════════════════════════════════
+📋 DETAILED ISSUES TO FIX (from Reviewer):
+═══════════════════════════════════════════════════════════════
+${detailedFeedback.map((f, i) => `${i + 1}. ${f}`).join('\n')}
+` : '';
+
+        const prompt = `You are an expert content editor making targeted improvements.
+${domainHint}
+═══════════════════════════════════════════════════════════════
+📝 CURRENT CONTENT:
+═══════════════════════════════════════════════════════════════
 ${content}
 
-Feedback/Instructions:
+═══════════════════════════════════════════════════════════════
+🎯 FEEDBACK SUMMARY:
+═══════════════════════════════════════════════════════════════
 ${feedback}
+${detailedSection}
+═══════════════════════════════════════════════════════════════
+🔧 YOUR TASK:
+═══════════════════════════════════════════════════════════════
 
-TASK:
-Apply the feedback by making specific edits. Do NOT rewrite the whole text.
-Use the following strict format for each change:
+Apply ALL the feedback by making specific edits. Do NOT rewrite the whole text.
+
+MANDATORY FIXES (always do these even if not explicitly mentioned):
+1. Remove AI-sounding phrases:
+   - "It's important to note that..." → Remove or rephrase naturally
+   - "Let's dive in..." → Just start the content
+   - "As mentioned earlier..." → Reference directly
+   - "crucial", "essential", "fundamental" (if overused) → Use variety
+
+2. Remove meta-references:
+   - "In this section/module/lecture..." → Just teach directly
+   - "According to the transcript..." → State facts directly
+   - Any course/program names → Remove completely
+
+3. Make content engaging:
+   - Convert passive voice to active
+   - Add concrete examples where abstract
+   - Use "you" language
+
+OUTPUT FORMAT - Use this exact format for each change:
 
 <<<<<<< SEARCH
-[Exact text to replace]
+[Exact text to find and replace - copy EXACTLY from content above]
 =======
-[New improved text]
+[Your improved replacement text]
 >>>>>>>
 
 CRITICAL RULES:
-1. If no changes are needed for a specific part, do not output it.
-2. Output multiple blocks if needed.
-3. PRESERVE ALL MARKDOWN FORMATTING - especially triple backticks for code blocks.
-4. Do NOT remove or modify \`\`\`python or \`\`\` markers in code blocks.
-5. When the content is JSON, be very careful to maintain valid JSON syntax.`;
+1. Each SEARCH block must contain text that exists EXACTLY in the content
+2. Output multiple blocks for multiple changes
+3. PRESERVE all markdown formatting
+4. If no changes needed, output: NO_CHANGES_NEEDED`;
 
         yield* this.client.stream({
             system: this.getSystemPrompt(),

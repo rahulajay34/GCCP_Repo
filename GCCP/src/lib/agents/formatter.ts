@@ -1,12 +1,7 @@
 import { BaseAgent } from "./base-agent";
 import { AnthropicClient } from "@/lib/anthropic/client";
 import { parseLLMJson } from "./utils/json-parser";
-import { validateAssignment } from "./utils/assignment-validator";
-import {
-    AssignmentItem,
-    LegacyAssignmentQuestion,
-    convertLegacyToAssignmentItem
-} from "@/types/assignment";
+import { AssignmentItem } from "@/types/assignment";
 
 export class FormatterAgent extends BaseAgent {
     constructor(client: AnthropicClient) {
@@ -27,22 +22,10 @@ Do not strip or modify the content, only structure it as JSON.`;
             const fastParsed = await parseLLMJson<any[]>(content, []);
             if (fastParsed.length > 0) {
                 // Check if it's already in new format
-                if (fastParsed[0].questionType) {
+                if (fastParsed[0].questionType || fastParsed[0].contentBody) {
                     const validated = this.ensureAssignmentItemFormat(fastParsed);
-                    const validation = validateAssignment(this.convertToLegacyForValidation(validated));
-                    if (validation.isValid) {
-                        console.log("Formatter: Fast Path (new format) - skipping LLM");
-                        return JSON.stringify(validated, null, 2);
-                    }
-                }
-                // Check if it's legacy format - convert it
-                if (fastParsed[0].type && fastParsed[0].question_text) {
-                    const validation = validateAssignment(fastParsed);
-                    if (validation.isValid) {
-                        console.log("Formatter: Fast Path (legacy format) - converting to new format");
-                        const converted = (fastParsed as LegacyAssignmentQuestion[]).map(convertLegacyToAssignmentItem);
-                        return JSON.stringify(converted, null, 2);
-                    }
+                    console.log("Formatter: Fast Path (new format) - skipping LLM");
+                    return JSON.stringify(validated, null, 2);
                 }
             }
         } catch (e) {
@@ -120,11 +103,6 @@ CRITICAL RULES:
      */
     private ensureAssignmentItemFormat(items: any[]): AssignmentItem[] {
         return items.map(item => {
-            // If legacy format, convert
-            if (item.type && item.question_text) {
-                return convertLegacyToAssignmentItem(item as LegacyAssignmentQuestion);
-            }
-
             // Ensure options is an object with keys 1-4
             let options = item.options;
             if (Array.isArray(options)) {
@@ -139,7 +117,7 @@ CRITICAL RULES:
             }
 
             // Normalize questionType
-            let questionType = item.questionType || item.type || 'mcsc';
+            let questionType = item.questionType || 'mcsc';
             questionType = questionType.toLowerCase();
 
             // Handle answer conversion from letters to numbers
@@ -171,34 +149,6 @@ CRITICAL RULES:
     }
 
     /**
-     * Convert new format to legacy for validation compatibility
-     */
-    private convertToLegacyForValidation(items: AssignmentItem[]): any[] {
-        return items.map(item => {
-            const numToLetter: Record<number, string> = { 1: 'A', 2: 'B', 3: 'C', 4: 'D' };
-            let correct_option = '';
-
-            if (item.questionType === 'mcsc' && item.mcscAnswer) {
-                correct_option = numToLetter[item.mcscAnswer] || 'A';
-            } else if (item.questionType === 'mcmc' && item.mcmcAnswer) {
-                correct_option = item.mcmcAnswer.split(',')
-                    .map(n => numToLetter[parseInt(n.trim())])
-                    .filter(Boolean)
-                    .join(',');
-            }
-
-            return {
-                type: item.questionType.toUpperCase(),
-                question_text: item.contentBody,
-                options: [item.options[1], item.options[2], item.options[3], item.options[4]],
-                correct_option,
-                explanation: item.answerExplanation,
-                model_answer: item.subjectiveAnswer,
-            };
-        });
-    }
-
-    /**
      * Attempt to recover from parse errors
      */
     private attemptRecovery(text: string): string {
@@ -209,7 +159,7 @@ CRITICAL RULES:
             for (const match of objectMatches) {
                 try {
                     const obj = JSON.parse(match[0]);
-                    if ((obj.questionType || obj.type) && (obj.contentBody || obj.question_text)) {
+                    if ((obj.questionType) && (obj.contentBody)) {
                         questions.push(obj);
                     }
                 } catch {

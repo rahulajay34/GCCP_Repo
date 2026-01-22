@@ -2,6 +2,12 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { GenerationState, ContentMode, AgentStatus } from '@/types/content';
 
+// Content buffer for throttled updates (outside React lifecycle)
+let contentBuffer = '';
+let flushTimeout: ReturnType<typeof setTimeout> | null = null;
+let lastFlushTime = 0;
+const FLUSH_INTERVAL = 150; // ms between flushes
+
 interface GenerationStore extends GenerationState {
   transcript?: string;
   formattedContent?: string;
@@ -15,6 +21,7 @@ interface GenerationStore extends GenerationState {
   setCurrentAgent: (agent: string) => void;
   setCurrentAction: (action: string) => void;
   updateContent: (chunk: string) => void;
+  flushContentBuffer: () => void;
   setContent: (content: string) => void;
   setFormattedContent: (content: string) => void;
   setGapAnalysis: (result: any) => void;
@@ -30,14 +37,14 @@ interface GenerationStore extends GenerationState {
 
 export const useGenerationStore = create<GenerationStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       topic: '',
       subtopics: '',
       mode: 'lecture',
       transcript: '',
       status: 'idle',
       currentAgent: null,
-      currentAction: null, // NEW
+      currentAction: null,
       agentProgress: {},
       gapAnalysis: null,
       finalContent: '',
@@ -55,7 +62,55 @@ export const useGenerationStore = create<GenerationStore>()(
       setStatus: (status) => set({ status }),
       setCurrentAgent: (currentAgent) => set({ currentAgent }),
       setCurrentAction: (currentAction) => set({ currentAction }),
-      updateContent: (chunk) => set((state) => ({ finalContent: (state.finalContent || '') + chunk })),
+
+      // Throttled content update - buffers chunks and flushes periodically
+      updateContent: (chunk) => {
+        contentBuffer += chunk;
+
+        const now = Date.now();
+        const timeSinceLastFlush = now - lastFlushTime;
+
+        // If enough time has passed, flush immediately
+        if (timeSinceLastFlush >= FLUSH_INTERVAL) {
+          if (flushTimeout) {
+            clearTimeout(flushTimeout);
+            flushTimeout = null;
+          }
+          const bufferedContent = contentBuffer;
+          contentBuffer = '';
+          lastFlushTime = now;
+          set((state) => ({ finalContent: (state.finalContent || '') + bufferedContent }));
+          return;
+        }
+
+        // Otherwise, schedule a flush if not already scheduled
+        if (!flushTimeout) {
+          flushTimeout = setTimeout(() => {
+            const bufferedContent = contentBuffer;
+            contentBuffer = '';
+            lastFlushTime = Date.now();
+            flushTimeout = null;
+            if (bufferedContent) {
+              set((state) => ({ finalContent: (state.finalContent || '') + bufferedContent }));
+            }
+          }, FLUSH_INTERVAL - timeSinceLastFlush);
+        }
+      },
+
+      // Force flush any remaining buffered content
+      flushContentBuffer: () => {
+        if (flushTimeout) {
+          clearTimeout(flushTimeout);
+          flushTimeout = null;
+        }
+        if (contentBuffer) {
+          const bufferedContent = contentBuffer;
+          contentBuffer = '';
+          lastFlushTime = Date.now();
+          set((state) => ({ finalContent: (state.finalContent || '') + bufferedContent }));
+        }
+      },
+
       setContent: (content) => set({ finalContent: content }),
       setFormattedContent: (content) => set({ formattedContent: content }),
       setGapAnalysis: (result: any) => set({ gapAnalysis: result }),
@@ -66,22 +121,38 @@ export const useGenerationStore = create<GenerationStore>()(
       addStepLog: (agent, message) => set((state) => ({
         logs: [...(state.logs || []), { type: 'step', agent, message, timestamp: Date.now() }]
       })),
-      reset: () => set({
-        topic: '', subtopics: '', status: 'idle', finalContent: '', formattedContent: '', currentAgent: null, currentAction: null, gapAnalysis: null, transcript: '', logs: [], estimatedCost: 0
-      }),
-      clearGenerationState: () => set({
-        logs: [],
-        finalContent: '',
-        formattedContent: '',
-        gapAnalysis: null,
-        currentAgent: null,
-        currentAction: null,
-        agentProgress: {},
-        estimatedCost: 0
-      })
+      reset: () => {
+        // Clear buffer on reset
+        contentBuffer = '';
+        if (flushTimeout) {
+          clearTimeout(flushTimeout);
+          flushTimeout = null;
+        }
+        set({
+          topic: '', subtopics: '', status: 'idle', finalContent: '', formattedContent: '', currentAgent: null, currentAction: null, gapAnalysis: null, transcript: '', logs: [], estimatedCost: 0
+        });
+      },
+      clearGenerationState: () => {
+        // Clear buffer when clearing generation state
+        contentBuffer = '';
+        if (flushTimeout) {
+          clearTimeout(flushTimeout);
+          flushTimeout = null;
+        }
+        set({
+          logs: [],
+          finalContent: '',
+          formattedContent: '',
+          gapAnalysis: null,
+          currentAgent: null,
+          currentAction: null,
+          agentProgress: {},
+          estimatedCost: 0
+        });
+      }
     }),
     {
-      name: 'generation-storage', // unique name
+      name: 'generation-storage',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         topic: state.topic,
@@ -92,20 +163,16 @@ export const useGenerationStore = create<GenerationStore>()(
         formattedContent: state.formattedContent,
         gapAnalysis: state.gapAnalysis,
         logs: state.logs,
-        status: (state.status === 'generating' || state.status === 'mismatch') ? 'idle' : state.status // reset stuck generating or mismatch
+        status: (state.status === 'generating' || state.status === 'mismatch') ? 'idle' : state.status
       }),
-      // Reset stuck agents on store rehydration
       onRehydrateStorage: () => (state) => {
         if (state) {
-          // Reset any stuck agent states
           const cleanedProgress: Record<string, any> = {};
           if (state.agentProgress) {
             for (const [agent, status] of Object.entries(state.agentProgress)) {
-              // Reset 'working' to 'idle' on reload
               cleanedProgress[agent] = status === 'working' ? 'idle' : status;
             }
           }
-          // Apply the cleaned state
           useGenerationStore.setState({
             agentProgress: cleanedProgress,
             currentAgent: null,

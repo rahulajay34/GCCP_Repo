@@ -1,4 +1,4 @@
-import { ContentMode, GapAnalysisResult } from "@/types/content";
+import { ContentMode, GapAnalysisResult, CourseContext } from "@/types/content";
 
 export interface CreatorPromptOptions {
   topic: string;
@@ -6,6 +6,7 @@ export interface CreatorPromptOptions {
   mode: ContentMode;
   transcript?: string;
   gapAnalysis?: GapAnalysisResult;
+  courseContext?: CourseContext; // Injected by CourseDetector
   assignmentCounts?: { mcsc: number; mcmc: number; subjective: number };
 }
 
@@ -16,7 +17,6 @@ Your tone is conversational but thorough—like a knowledgeable mentor walking s
 
 Core principles:
 
-- Build on pre-read foundation without repeating it
 - Progress from "What → Why → How → Recap"
 - Use concrete examples for every abstract concept
 - Include common mistakes and how to fix them
@@ -41,6 +41,8 @@ Write as if YOU are the expert teaching directly to the student.
 No meta-references to sources, materials, or the generation process.
 Teach the content, don't describe teaching it.
 Do not use phrases like "In this lecture" or "As an AI".
+If creating '$' symbol in content, use \$ instead of $ symbol to prevent Markdown processors from misinterpreting dollar signs as LaTeX math delimiters.
+Avoid using long paragraphs of text. Break down the content into smaller chunks of bullet points.
 
 ═══════════════════════════════════════════════════════════════
 
@@ -98,7 +100,7 @@ Each question MUST have this EXACT structure:
   "mcscAnswer": 2,              // For mcsc ONLY: number 1-4
   "mcmcAnswer": "1, 3",         // For mcmc ONLY: comma-separated numbers
   "subjectiveAnswer": "...",    // For subjective ONLY: model answer
-  "difficultyLevel": "Medium",
+  "difficultyLevel": "0.5",     // For easy questions:0, for medium questions:0.5, for hard questions:1
   "answerExplanation": "Detailed teaching explanation..."
 }
 
@@ -122,6 +124,41 @@ Questions must be STANDALONE and student-facing.
 ═══════════════════════════════════════════════════════════════`,
 };
 
+/**
+ * Format course context section for injection into prompts (runtime injection)
+ * This section tailors content to the detected domain
+ */
+const formatCourseContextSection = (context?: CourseContext): string => {
+  if (!context || context.domain === 'general') return '';
+
+  return `
+═══════════════════════════════════════════════════════════════
+🎯 DOMAIN-SPECIFIC CONTENT GUIDELINES
+═══════════════════════════════════════════════════════════════
+
+${context.contentGuidelines}
+
+**Use these or similar types of examples:** ${context.characteristics.exampleTypes.join(', ')}
+
+**Preferred formats:** ${context.characteristics.formats.join(', ')}
+
+**Incorporate domain vocabulary naturally:** ${context.characteristics.vocabulary.slice(0, 7).join(', ')}
+
+**Writing style:** ${context.characteristics.styleHints.join('; ')}
+
+**Relatable scenarios students will connect with, you can use them or create your own:**
+${context.characteristics.relatableExamples.map(ex => `• ${ex}`).join('\n')}
+
+⚠️ CRITICAL REMINDERS:
+• Do NOT mention any course name, program name, or domain label
+• Do NOT use meta-phrases like "in this course" or "for this program"
+• Just naturally incorporate the domain-appropriate examples and style
+• Content should feel tailored but never explicitly state it's for a specific audience
+═══════════════════════════════════════════════════════════════
+
+`;
+};
+
 // Helper to format transcript section for prompts
 const formatTranscriptSection = (transcript: string, gapAnalysis?: GapAnalysisResult): string => {
   let section = `
@@ -133,10 +170,9 @@ You have been given a lecture/session transcript. This is your PRIMARY SOURCE.
 
 **CRITICAL INSTRUCTIONS:**
 1. Extract key explanations, examples, and insights DIRECTLY from the transcript
-2. Use the instructor's specific examples, analogies, and teaching style
+2. Use the instructor's specific examples, analogies
 3. Preserve important quotes and demonstrations from the transcript
 4. Only supplement with additional context when the transcript lacks coverage
-5. DO NOT make up examples that aren't in the transcript—use what was actually taught
 
 `;
 
@@ -179,12 +215,15 @@ ${transcript.length > 80000 ? '\n... [transcript truncated for length]' : ''}
 export const getCreatorUserPrompt = (
   options: CreatorPromptOptions
 ) => {
-  const { topic, subtopics, mode, transcript, gapAnalysis, assignmentCounts = { mcsc: 5, mcmc: 3, subjective: 2 } } = options;
+  const { topic, subtopics, mode, transcript, gapAnalysis, courseContext, assignmentCounts = { mcsc: 4, mcmc: 4, subjective: 1 } } = options;
+
+  // Runtime course context injection (from CourseDetector)
+  const courseSection = formatCourseContextSection(courseContext);
 
   if (mode === "lecture") {
     const transcriptSection = transcript ? formatTranscriptSection(transcript, gapAnalysis) : '';
 
-    return `${transcriptSection}Topic: ${topic}
+    return `${courseSection}${transcriptSection}Topic: ${topic}
 Key Concepts: ${subtopics}
 Student Context: They've completed pre-reading on this topic
 ${transcript ? `
@@ -192,7 +231,7 @@ ${transcript ? `
 ` : ''}
 Create lecture notes that take students from basic awareness to solid understanding. Structure naturally following this flow:
 
-## What You'll Learn
+## Lecture Notes : ${topic}
 
 Begin with "In this lesson, you'll learn to…" then provide 3-4 specific, actionable goals using verbs like explain, apply, compare, build. Avoid abstract goals—be concrete about what they'll be able to do.
 
@@ -206,9 +245,8 @@ Include these subsections flexibly—only where they naturally fit:
 
 - Start with relatable analogy
 - Define in one clear sentence
-- Link back to pre-read knowledge: "You learned about X in the pre-read; now we'll..."
 
-### Why It Matters (Always include)
+### Why It Matters (Make this heading exciting - Don't use "Why It Matters")
 
 - Explain the problem it solves
 - Use direct examples: "You'll need this when..."
@@ -271,22 +309,22 @@ Critical instructions:
   if (mode === "pre-read") {
     const transcriptSection = transcript ? formatTranscriptSection(transcript, gapAnalysis) : '';
 
-    return `${transcriptSection}Topic: ${topic}
+    return `${courseSection}${transcriptSection}Topic: ${topic}
 Key Concepts: ${subtopics}
 ${transcript ? `
-**SOURCE PRIORITY**: Your PRIMARY source is the transcript above. Extract key concepts, vocabulary, and foundational ideas directly from what was taught. Only add supplementary content for subtopics not covered in the transcript.
+**SOURCE PRIORITY**: Your PRIMARY source is the ${topic} and ${subtopics}.
 ` : ''}
-Create pre-read content that introduces this topic to complete beginners. Structure your response naturally following this flow:
+Create pre-read content that introduces this topic to complete beginners in a way that is easy to understand and engaging manner. Structure your response naturally following this flow:
 
-## What You'll Learn
+## Pre-Read Notes : ${topic}
 
 Start with "In this pre-read, you'll discover:" then list 3-4 specific, jargon-free promises using action words (discover, understand, learn).
 
-## Understanding ${topic}
+## Understanding ${topic} (use key concept from subtopics)
 
 Build awareness through these subsections—but only include ones that naturally fit. Don't force every subsection if it feels awkward:
 
-### What Is ${topic}? (Always include)
+### What Is ${topic}? (use key vocab for the topic)
 
 - Begin with an everyday analogy
 - Follow with one clear definition sentence
@@ -299,7 +337,7 @@ Build awareness through these subsections—but only include ones that naturally
 - Frame as problems solved or improvements gained
 - Keep explanations to 1-2 sentences each
 
-### From Known to New (Include when helpful)
+### From Known to New (replace known and new with prerequisites and new concept)
 
 - Show the "painful way" using only prerequisites
 - Introduce new concept as the elegant solution
@@ -315,7 +353,7 @@ Build awareness through these subsections—but only include ones that naturally
 
 - 3-5 numbered steps
 - One clear action per step
-- For code: minimal example per step
+- For code: minimal example per step (if required)
 - For concepts: progress mini case study
 
 ### Key Features (Include only if essential)
@@ -327,12 +365,12 @@ Build awareness through these subsections—but only include ones that naturally
 ### Putting It All Together (Always include)
 
 - ONE complete example using prerequisites plus new concept
-- For code: 10-15 lines maximum
+- For code: 10-15 lines maximum (if required)
 - For concepts: complete mini case study with clear outcome
 
 ## Practice Exercises
 
-Create 3-5 thinking exercises. Mix and match from:
+Create 3-5 thinking/creative exercises. Mix and match from:
 
 - Pattern Recognition: Identify what could be improved
 - Concept Detective: Guess purpose in examples
@@ -346,7 +384,7 @@ Important: Write naturally. Never mention the word "analogy" explicitly. Never r
   if (mode === "assignment") {
     const { mcsc, mcmc, subjective } = assignmentCounts;
     const total = mcsc + mcmc + subjective;
-    return `Topic: ${topic}
+    return `${courseSection}Topic: ${topic}
 Key Concepts: ${subtopics}
 
 ═══════════════════════════════════════════════════════════════
@@ -378,7 +416,7 @@ Output a JSON array where EACH question follows this EXACT structure:
     "4": "Fourth option"
   },
   "mcscAnswer": 2,
-  "difficultyLevel": "Medium",
+  "difficultyLevel": "0.5",
   "answerExplanation": "Teaching explanation..."
 }
 \`\`\`
@@ -395,8 +433,8 @@ Output a JSON array where EACH question follows this EXACT structure:
     "4": "Fourth option"
   },
   "mcmcAnswer": "1, 3",
-  "difficultyLevel": "Medium",
-  "answerExplanation": "Explain why each correct answer is right..."
+  "difficultyLevel": "0.5",
+  "answerExplanation": "Teaching explanation... (if required show why other options are wrong)"
 }
 \`\`\`
 
@@ -404,11 +442,11 @@ Output a JSON array where EACH question follows this EXACT structure:
 \`\`\`json
 {
   "questionType": "subjective",
-  "contentBody": "Open-ended question...",
+  "contentBody": "Conceptual Implementation based question with clear submission guidelines...",
   "options": { "1": "", "2": "", "3": "", "4": "" },
   "subjectiveAnswer": "Model answer the student should provide...",
-  "difficultyLevel": "Medium",
-  "answerExplanation": "Key points to cover..."
+  "difficultyLevel": "0.5",
+  "answerExplanation": "Teaching explanation... (Ideal editorial answer for the question)"
 }
 \`\`\`
 

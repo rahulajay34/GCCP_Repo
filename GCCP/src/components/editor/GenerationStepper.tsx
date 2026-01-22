@@ -20,21 +20,25 @@ interface StepperProps {
 
 // Average durations per agent (in seconds) - based on typical usage
 const AVERAGE_STAGE_TIMES: Record<string, number> = {
+    CourseDetector: 4,
     Analyzer: 4,
-    Creator: 12,
-    Validator: 8,
-    Refiner: 8,
-    Formatter: 4,
+    Creator: 60,
+    Sanitizer: 10,
+    Reviewer: 10,
+    Refiner: 10,
+    Formatter: 30,
 };
 
 // Define the full agent pipeline
 const getAgentPipeline = (mode: string = 'lecture', hasTranscript: boolean = false) => {
     const pipeline = [
-        hasTranscript ? { id: 'Analyzer', label: 'Analyzing', required: true } : null,
-        { id: 'Creator', label: 'Drafting', required: true },
-        { id: 'Validator', label: 'Validating', required: true },
-        { id: 'Refiner', label: 'Polishing', required: false },
-        mode === 'assignment' ? { id: 'Formatter', label: 'Formatting', required: true } : null
+        { id: 'CourseDetector', label: 'Context', required: true }, // Always runs first
+        hasTranscript ? { id: 'Analyzer', label: 'Analysis', required: true } : null,
+        { id: 'Creator', label: 'Draft', required: true },
+        hasTranscript ? { id: 'Sanitizer', label: 'Fact-Check', required: true } : null,
+        { id: 'Reviewer', label: 'Review', required: true },
+        { id: 'Refiner', label: 'Polish', required: false }, // Conditional
+        mode === 'assignment' ? { id: 'Formatter', label: 'Format', required: true } : null
     ].filter(Boolean) as Array<{ id: string; label: string; required: boolean }>;
     
     return pipeline;
@@ -63,7 +67,7 @@ export const GenerationStepper = memo(function GenerationStepper({ logs, status,
         }
     }, [status]);
     
-    // Update elapsed time every second
+    // Update elapsed time every 2 seconds (reduced from 1s to minimize re-renders)
     useEffect(() => {
         if (status !== 'generating') return;
         
@@ -71,7 +75,7 @@ export const GenerationStepper = memo(function GenerationStepper({ logs, status,
             if (startTimeRef.current) {
                 setElapsedTime(Math.floor((Date.now() - startTimeRef.current) / 1000));
             }
-        }, 1000);
+        }, 2000); // Increased from 1000 to reduce update frequency
         
         return () => clearInterval(interval);
     }, [status]);
@@ -174,8 +178,11 @@ export const GenerationStepper = memo(function GenerationStepper({ logs, status,
                 <div className="space-y-3 mt-3 pt-3 border-t border-gray-100">
                     {pipeline.map((stage, idx) => {
                         // Find the specific log entry for this agent to get the real action message
-                        const agentLog = completedSteps.find(s => s.agent === stage.id);
-                        const hasCompleted = !!agentLog;
+                        // We filter for ALL logs for this agent and take the LAST one to show current state/conclusion
+                        const agentLogs = completedSteps.filter(s => s.agent === stage.id);
+                        const agentLog = agentLogs.length > 0 ? agentLogs[agentLogs.length - 1] : undefined;
+                        
+                        const hasCompleted = agentLogs.length > 0;
                         const isActive = status === 'generating' && currentAgent === stage.id;
                         
                         // If pipeline is complete but this step (which is optional) didn't run, it's skipped

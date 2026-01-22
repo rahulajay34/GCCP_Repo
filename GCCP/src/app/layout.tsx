@@ -23,11 +23,11 @@ export default function RootLayout({
       <body className={`${inter.className} min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 transition-colors`}>
         <Providers>
           <AuthGuard>
-            <div className="flex flex-col min-h-screen">
+            <div className="flex flex-col h-screen bg-gray-50 dark:bg-black overflow-hidden">
               <Header />
-              <div className="flex flex-1">
+              <div className="flex flex-1 min-h-0 overflow-hidden">
                 <Sidebar />
-                <main className="flex-1 p-4 overflow-auto">
+                <main className="flex-1 p-6 overflow-auto">
                   {children}
                 </main>
               </div>

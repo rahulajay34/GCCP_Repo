@@ -8,7 +8,6 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
 import 'katex/dist/katex.min.css';
-import 'katex/dist/katex.min.css';
 // Custom code theme loaded in globals.css
 import { useEffect, useState, useRef, useMemo } from 'react';
 import debounce from 'lodash/debounce';
@@ -78,7 +77,7 @@ export default function EditorPage() {
 
   // Local state for immediate editor updates
   const [localContent, setLocalContent] = useState('');
-
+  
   // Sync local content with store content when generation updates (streaming)
   useEffect(() => {
     if (finalContent !== undefined && finalContent !== null) {
@@ -102,6 +101,9 @@ export default function EditorPage() {
   
   // Handler for user typing
   const handleEditorChange = (value: string | undefined) => {
+    // Prevent editor changes during generation to avoid conflicts with streaming
+    if (status === 'generating') return;
+    
     const val = value || '';
     setLocalContent(val); // Immediate update for Editor
     debouncedSetContent(val); // Delayed update for Store/Preview
@@ -125,7 +127,7 @@ export default function EditorPage() {
 
 
   return (
-    <div className="flex flex-col max-w-6xl mx-auto w-full pb-8">
+    <div className="flex flex-col max-w-7xl mx-auto w-full">
       <div className="flex-shrink-0 flex justify-between items-start mb-3 gap-4">
         {/* ... INPUTS ... */}
         <div className="flex-1 space-y-4">
@@ -301,15 +303,17 @@ export default function EditorPage() {
           </div>
       )}
 
-      {/* NEW STATUS BAR */}
-      {status === 'generating' && currentAction && (
-            <div className="flex-shrink-0 flex items-center gap-3 px-4 py-3 bg-blue-50 border-y border-blue-100 text-sm mb-4 animate-in fade-in">
+      {/* GRANULAR STATUS BAR (Visible when generating) */}
+      {status === 'generating' && (() => {
+          const currentStep = logs.filter(l => l.type === 'step').pop();
+          return currentStep ? (
+            <div className="flex-shrink-0 mb-4 px-4 py-2 bg-blue-50 border border-blue-100 rounded-lg flex items-center gap-3 animate-in fade-in">
                 <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
-                <span className="font-bold text-blue-800">{currentAgent || 'System'}:</span>
-                <span className="text-blue-600">{currentAction}</span>
-                {/* Optional: Add spinner for specific agents if desired, or just keep generic */}
+                <span className="font-bold text-blue-800">{currentStep.agent || 'System'}:</span>
+                <span className="text-blue-600 text-sm">{currentStep.message}</span>
             </div>
-      )}
+          ) : null;
+      })()}
 
       {/* Progress Stepper & Logs */}
       {status !== 'idle' && (
@@ -376,40 +380,43 @@ export default function EditorPage() {
 
       {/* MAIN CONTENT AREA */}
       {mode === 'assignment' ? (
-            /* For assignment mode: Show AssignmentWorkspace or loading state */
-            <div className="h-[700px]">
-                {formattedContent && (status === 'idle' || status === 'complete') ? (
-                    <AssignmentWorkspace 
-                        jsonContent={formattedContent || '[]'} 
-                        onUpdate={setFormattedContent}
-                    />
-                ) : status === 'generating' || currentAgent === 'Formatter' ? (
-                    <div className="h-full flex flex-col items-center justify-center bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-8">
-                        <div className="w-16 h-16 border-4 border-blue-200 dark:border-blue-900 border-t-blue-600 dark:border-t-blue-500 rounded-full animate-spin mb-4"></div>
-                        <h3 className="text-lg font-semibold text-zinc-700 dark:text-zinc-200 mb-2">Generating Assignment</h3>
-                        <p className="text-sm text-zinc-500 dark:text-zinc-400 text-center max-w-md">
-                            Creating {(assignmentCounts?.mcsc || 0) + (assignmentCounts?.mcmc || 0) + (assignmentCounts?.subjective || 0)} questions...
+        // --- ASSIGNMENT WORKSPACE (Full Screen) ---
+        <div className="flex-1 min-h-0 bg-white dark:bg-zinc-900 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm overflow-hidden flex flex-col transition-colors">
+            {formattedContent ? (
+                <AssignmentWorkspace 
+                    jsonContent={formattedContent} 
+                    onUpdate={setFormattedContent} 
+                />
+            ) : status === 'generating' ? (
+                // Loading State specific to Assignment
+                <div className="h-full flex flex-col items-center justify-center space-y-4 p-8">
+                    <div className="w-12 h-12 border-4 border-blue-200 dark:border-blue-900 border-t-blue-600 dark:border-t-blue-500 rounded-full animate-spin" />
+                    <p className="text-gray-500 dark:text-gray-400 font-medium animate-pulse">Creating your assignment...</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500">Current Step: {currentAction || 'Initializing'}</p>
+                </div>
+            ) : (
+                // Idle / Empty State
+                <div className="h-full flex flex-col items-center justify-center space-y-4 text-center p-8">
+                    <div className="w-16 h-16 bg-gray-50 dark:bg-zinc-800 rounded-full flex items-center justify-center mb-2">
+                        <FileText className="w-8 h-8 text-gray-300 dark:text-zinc-600" />
+                    </div>
+                    <div className="max-w-md space-y-2">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Ready to Create Assignment</h3>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                            Enter a topic and optional subtopics above, then click "Generate" to create a comprehensive assignment with multiple choice and subjective questions.
                         </p>
-                        {currentAgent && (
-                            <div className="mt-4 px-4 py-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg text-sm text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-800">
-                                <span className="font-semibold">{currentAgent}</span>: {currentAction || 'Processing...'}
-                            </div>
-                        )}
                     </div>
-                ) : (
-                    <div className="h-full flex flex-col items-center justify-center bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-8 text-zinc-400 dark:text-zinc-600">
-                        <FileText size={48} className="mb-4 opacity-50" />
-                        <p className="text-sm">Enter a topic and click Generate to create an assignment.</p>
-                    </div>
-                )}
-            </div>
+                </div>
+            )}
+        </div>
       ) : (
           /* For lecture/pre-read mode: Show editor and preview panels */
-          <div className={`grid gap-6 h-[777px] transition-all duration-300 ${isFullScreen ? 'grid-cols-1' : 'grid-cols-2'}`}>
+          <div className={`grid gap-6 h-[800px] max-h-[calc(100vh-16rem)] transition-all duration-300 ${isFullScreen ? 'grid-cols-1' : 'grid-cols-2'}`}>
             <div className={`bg-white dark:bg-zinc-900 rounded-2xl border shadow-sm flex flex-col overflow-hidden relative transition-all duration-500 ${
               isFullScreen ? 'hidden' : ''
             } ${
-              currentAgent === 'Validator' ? 'border-orange-300 ring-4 ring-orange-50/50 shadow-orange-100' :
+              currentAgent === 'Sanitizer' ? 'border-teal-300 ring-4 ring-teal-50/50 shadow-teal-100' :
+              currentAgent === 'Reviewer' ? 'border-amber-300 ring-4 ring-amber-50/50 shadow-amber-100' :
               currentAgent === 'Refiner' ? 'border-purple-300 ring-4 ring-purple-50/50 shadow-purple-100' :
               'border-zinc-200 dark:border-zinc-800'
             }`}>
@@ -419,9 +426,14 @@ export default function EditorPage() {
                     Editor (Markdown)
                 </span>
                 {/* Live Agent Status Indicators */}
-                {status === 'generating' && currentAgent === 'Validator' && (
-                  <span className="text-xs font-bold text-orange-600 animate-pulse flex items-center gap-1">
-                    🔍 Validating Content...
+                {status === 'generating' && currentAgent === 'Sanitizer' && (
+                  <span className="text-xs font-bold text-teal-600 animate-pulse flex items-center gap-1">
+                    🛡️ Verifying Facts...
+                  </span>
+                )}
+                {status === 'generating' && currentAgent === 'Reviewer' && (
+                  <span className="text-xs font-bold text-amber-600 animate-pulse flex items-center gap-1">
+                    ⚖️ Assesing Quality...
                   </span>
                 )}
                 {status === 'generating' && currentAgent === 'Refiner' && (

@@ -15,7 +15,7 @@ export function Sidebar() {
   const { theme, toggleTheme } = useTheme();
   
   return (
-    <aside className="hidden lg:flex flex-col w-64 border-r border-zinc-200 dark:border-zinc-800 h-[calc(100vh-4rem)] bg-white dark:bg-zinc-900 sticky top-16 transition-colors">
+    <aside className="hidden lg:flex flex-col w-64 border-r border-zinc-200 dark:border-zinc-800 h-full bg-white dark:bg-zinc-900 flex-shrink-0 transition-colors">
       <nav className="flex-1 p-4 space-y-1">
         {navItems.map((item) => {
           const isActive = pathname === item.href;
